@@ -8,7 +8,8 @@ const OPEN_DEBTS = 'Kontak masih punya hutang atau piutang yang belum lunas.';
 
 function forRole(contact, role) {
   if (role !== 'staff') return contact;
-  const { payable_balance: _payable, ...visible } = contact;
+  const visible = { ...contact };
+  delete visible.payable_balance;
   return visible;
 }
 

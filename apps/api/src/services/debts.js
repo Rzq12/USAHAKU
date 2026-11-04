@@ -86,7 +86,12 @@ async function paymentCategoryId(client, businessId, debt) {
 
 async function syncInvoice(client, businessId, debt, status) {
   if (debt.source_type !== 'sale') return;
-  await setInvoiceStatusBySale(client, businessId, debt.source_id, status === 'paid' ? 'paid' : 'issued');
+  await setInvoiceStatusBySale(
+    client,
+    businessId,
+    debt.source_id,
+    status === 'paid' ? 'paid' : 'issued',
+  );
 }
 
 /** BR-008: the payment moves cash through a transaction whose source type keeps it out of profit. */
@@ -145,7 +150,9 @@ export async function recordPayment(actor, debtId, body) {
       detail: { debt_id: debtId, amount: body.amount, status: { old: debt.status, new: status } },
     });
 
-    const result = { debt: present(await debts.getDebt(client, actor.business_id, debtId), todayJakarta()) };
+    const result = {
+      debt: present(await debts.getDebt(client, actor.business_id, debtId), todayJakarta()),
+    };
     if (actor.role !== STAFF_ROLE) {
       result.account_balance = await getAccountBalance(client, actor.business_id, body.account_id);
     }

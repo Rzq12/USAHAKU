@@ -145,7 +145,8 @@ function buildFilters(businessId, filters) {
   if (filters.created_by) add('t.created_by = ?', filters.created_by);
   if (filters.from) add('t.occurred_on >= ?', filters.from);
   if (filters.to) add('t.occurred_on <= ?', filters.to);
-  if (filters.account_id) add('(t.account_id = ? OR t.transfer_account_id = ?)', filters.account_id);
+  if (filters.account_id)
+    add('(t.account_id = ? OR t.transfer_account_id = ?)', filters.account_id);
   if (filters.type) add('t.type = ?', filters.type);
   if (filters.category_id) add('t.category_id = ?', filters.category_id);
   if (filters.tag) {

@@ -19,6 +19,9 @@ z.setErrorMap((issue, ctx) => {
   if (issue.code === 'invalid_string' && issue.validation === 'email') {
     return { message: 'Format email tidak valid.' };
   }
+  if (issue.code === 'invalid_string' && issue.validation === 'uuid') {
+    return { message: 'Pilih salah satu.' };
+  }
   if (issue.code === 'invalid_enum_value') return { message: 'Pilihan tidak valid.' };
   return { message: ctx.defaultError === 'Required' ? 'Wajib diisi.' : 'Format tidak valid.' };
 });
@@ -56,7 +59,9 @@ export const optionalText = (max) =>
     .nullish()
     .transform((value) => value ?? null);
 
-const queryBoolean = z.enum(['true', 'false', '1', '0']).transform((v) => v === 'true' || v === '1');
+const queryBoolean = z
+  .enum(['true', 'false', '1', '0'])
+  .transform((v) => v === 'true' || v === '1');
 export { queryBoolean };
 
 export const pagination = {

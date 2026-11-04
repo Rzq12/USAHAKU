@@ -7,7 +7,8 @@ export class AppError extends Error {
   }
 }
 
-export const badRequest = (message, fields) => new AppError(400, 'VALIDATION_ERROR', message, fields);
+export const badRequest = (message, fields) =>
+  new AppError(400, 'VALIDATION_ERROR', message, fields);
 export const fieldError = (field, message) => badRequest(message, { [field]: message });
 export const unauthorized = (message = 'Silakan masuk terlebih dahulu.', code = 'UNAUTHORIZED') =>
   new AppError(401, code, message);

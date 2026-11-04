@@ -15,7 +15,7 @@ export async function listAccounts(q, businessId, includeArchived) {
     `SELECT a.id, a.name, a.type, a.opening_balance, a.is_archived, ${BALANCE_SQL} AS balance
      FROM accounts a
      WHERE a.business_id = $1 AND ($2 OR NOT a.is_archived)
-     ORDER BY a.is_archived, a.created_at`,
+     ORDER BY a.is_archived, a.type = 'cash' DESC, a.created_at, a.name`,
     [businessId, includeArchived],
   );
   return rows;

@@ -16,7 +16,9 @@ export function startScheduler() {
     '5 0 * * *',
     () =>
       runDailyJob().catch((error) =>
-        console.error(JSON.stringify({ level: 'error', message: error.message, stack: error.stack })),
+        console.error(
+          JSON.stringify({ level: 'error', message: error.message, stack: error.stack }),
+        ),
       ),
     { timezone: 'Asia/Jakarta' },
   );

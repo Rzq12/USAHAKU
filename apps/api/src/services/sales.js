@@ -180,7 +180,9 @@ export async function createSale(actor, body) {
 
 function itemForRole(item, role) {
   if (role !== STAFF_ROLE) return item;
-  const { unit_cost: _unitCost, line_cost: _lineCost, ...visible } = item;
+  const visible = { ...item };
+  delete visible.unit_cost;
+  delete visible.line_cost;
   return visible;
 }
 

@@ -107,11 +107,13 @@ function signature(date, amount, note) {
 }
 
 function importHash(accountId, date, amount, note) {
-  return createHash('sha256').update(`${accountId}|${signature(date, amount, note)}`).digest('hex');
+  return createHash('sha256')
+    .update(`${accountId}|${signature(date, amount, note)}`)
+    .digest('hex');
 }
 
 function parseRow(cells, mapping, defaults, categoriesByName) {
-  const column = (name) => (mapping[name] === undefined ? undefined : cells[mapping[name]] ?? '');
+  const column = (name) => (mapping[name] === undefined ? undefined : (cells[mapping[name]] ?? ''));
   const date = parseImportDate(column('date') ?? '');
   if (!date) return { status: 'invalid', reason: 'Tanggal tidak dikenali.' };
   const signedAmount = parseImportAmount(column('amount') ?? '');
@@ -122,7 +124,10 @@ function parseRow(cells, mapping, defaults, categoriesByName) {
   const named = categoriesByName.get(`${type}|${(column('category') ?? '').trim().toLowerCase()}`);
   const categoryId = named ?? defaults[type];
   if (!categoryId) {
-    return { status: 'invalid', reason: `Belum ada kategori bawaan untuk ${type === 'income' ? 'pemasukan' : 'pengeluaran'}.` };
+    return {
+      status: 'invalid',
+      reason: `Belum ada kategori bawaan untuk ${type === 'income' ? 'pemasukan' : 'pengeluaran'}.`,
+    };
   }
   return {
     status: 'valid',
@@ -145,7 +150,12 @@ async function loadDefaults(client, actor, body) {
   if (!primary) throw fieldError('default_category_id', 'Pilih kategori bawaan yang aktif.');
   defaults[primary.type] = primary.id;
   if (body.default_income_category_id) {
-    await requireActiveCategory(client, actor.business_id, body.default_income_category_id, 'income');
+    await requireActiveCategory(
+      client,
+      actor.business_id,
+      body.default_income_category_id,
+      'income',
+    );
     defaults.income = body.default_income_category_id;
   }
   return { defaults, categoriesByName };
@@ -158,7 +168,10 @@ async function classifyRows(client, actor, body, data) {
     ...parseRow(cells, body.mapping, defaults, categoriesByName),
   }));
 
-  const dates = rows.filter((row) => row.status === 'valid').map((row) => row.occurred_on).sort();
+  const dates = rows
+    .filter((row) => row.status === 'valid')
+    .map((row) => row.occurred_on)
+    .sort();
   const seen = new Set();
   if (dates.length > 0) {
     const existing = await existingSignatures(

@@ -163,7 +163,10 @@ export async function deleteRule(actor, ruleId) {
 
 export async function testRule(actor, { note, type }) {
   const match = await categories.matchRule(pool, actor.business_id, note, type);
-  return { matched_category: match?.category_id ?? null, category_name: match?.category_name ?? null };
+  return {
+    matched_category: match?.category_id ?? null,
+    category_name: match?.category_name ?? null,
+  };
 }
 
 export async function listTags(actor) {

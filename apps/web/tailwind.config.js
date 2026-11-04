@@ -38,7 +38,14 @@ export default {
         danger: { DEFAULT: '#e03131', deep: '#b42318', tint: '#fde0ec' },
       },
       fontFamily: {
-        sans: ['"Inter Variable"', 'Inter', 'system-ui', '-apple-system', '"Segoe UI"', 'sans-serif'],
+        sans: [
+          '"Inter Variable"',
+          'Inter',
+          'system-ui',
+          '-apple-system',
+          '"Segoe UI"',
+          'sans-serif',
+        ],
       },
       fontSize: {
         micro: ['12px', { lineHeight: '1.4', fontWeight: '500' }],

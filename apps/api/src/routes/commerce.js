@@ -87,7 +87,9 @@ productsRouter.post(
   '/',
   requireRole(OWNER),
   handle(async (req, res) =>
-    res.status(201).json(await products.createProduct(req.user, parse(createProductSchema, req.body))),
+    res
+      .status(201)
+      .json(await products.createProduct(req.user, parse(createProductSchema, req.body))),
   ),
 );
 productsRouter.get(
@@ -268,7 +270,9 @@ debtsRouter.post(
   '/:id/payments',
   requireRole(OWNER, STAFF),
   handle(async (req, res) =>
-    res.status(201).json(await debts.recordPayment(req.user, id(req), parse(paymentSchema, req.body))),
+    res
+      .status(201)
+      .json(await debts.recordPayment(req.user, id(req), parse(paymentSchema, req.body))),
   ),
 );
 debtsRouter.post(
@@ -332,7 +336,11 @@ invoicesRouter.get(
       sendFile(res, await invoices.buildInvoicePdf(req.user, id(req)));
     } catch (error) {
       if (error instanceof AppError) throw error;
-      throw new AppError(500, 'PDF_FAILED', 'PDF gagal dibuat. Faktur tetap tersimpan, coba unduh lagi.');
+      throw new AppError(
+        500,
+        'PDF_FAILED',
+        'PDF gagal dibuat. Faktur tetap tersimpan, coba unduh lagi.',
+      );
     }
   }),
 );

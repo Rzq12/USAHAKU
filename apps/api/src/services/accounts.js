@@ -11,7 +11,12 @@ const HAS_TRANSACTIONS = 'Akun sudah punya transaksi. Arsipkan saja.';
 /** BR-011: Staff never receive balances. */
 function forRole(account, role) {
   if (role !== 'staff') return account;
-  return { id: account.id, name: account.name, type: account.type, is_archived: account.is_archived };
+  return {
+    id: account.id,
+    name: account.name,
+    type: account.type,
+    is_archived: account.is_archived,
+  };
 }
 
 export async function listAccounts(actor, includeArchived) {

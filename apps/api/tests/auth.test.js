@@ -226,7 +226,10 @@ test('BR-011 settings: tax rate and threshold round-trip through settings', asyn
     tax_threshold: 500_000_000,
   });
   assert.equal(invalid.status, 400);
-  assert.equal(invalid.body.error.fields.period_start_day, 'Tanggal awal periode harus antara 1 dan 28.');
+  assert.equal(
+    invalid.body.error.fields.period_start_day,
+    'Tanggal awal periode harus antara 1 dan 28.',
+  );
 
   const saved = await owner.put('/business', {
     name: 'Toko',

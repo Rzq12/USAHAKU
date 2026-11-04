@@ -119,8 +119,14 @@ export async function updateTransaction(actor, transactionId, body) {
     }
 
     await transactions.updateTransaction(client, actor.business_id, transactionId, next);
-    await transactions.replaceTags(client, actor.business_id, transactionId, normalizeTags(body.tags));
-    const { type: _type, ...compared } = next;
+    await transactions.replaceTags(
+      client,
+      actor.business_id,
+      transactionId,
+      normalizeTags(body.tags),
+    );
+    const compared = { ...next };
+    delete compared.type;
     await writeAudit(client, {
       businessId: actor.business_id,
       userId: actor.id,
@@ -152,7 +158,11 @@ export async function deleteTransaction(actor, transactionId) {
 }
 
 const IMAGE_SIGNATURES = [
-  { mime: 'image/jpeg', ext: 'jpg', matches: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
+  {
+    mime: 'image/jpeg',
+    ext: 'jpg',
+    matches: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  },
   {
     mime: 'image/png',
     ext: 'png',
@@ -162,7 +172,8 @@ const IMAGE_SIGNATURES = [
     mime: 'image/webp',
     ext: 'webp',
     matches: (b) =>
-      b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP',
+      b.subarray(0, 4).toString('latin1') === 'RIFF' &&
+      b.subarray(8, 12).toString('latin1') === 'WEBP',
   },
 ];
 

@@ -50,7 +50,6 @@ export function notFoundHandler(_req, _res, next) {
   next(new AppError(404, 'NOT_FOUND', 'Alamat tidak ditemukan.'));
 }
 
-// eslint-disable-next-line no-unused-vars
 export function errorHandler(error, req, res, _next) {
   if (error instanceof AppError) {
     return res.status(error.status).json({

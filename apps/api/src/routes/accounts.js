@@ -38,7 +38,11 @@ accountsRouter.put(
   requireRole(OWNER),
   handle(async (req, res) =>
     res.json(
-      await accounts.updateAccount(req.user, parse(uuid, req.params.id), parse(accountSchema, req.body)),
+      await accounts.updateAccount(
+        req.user,
+        parse(uuid, req.params.id),
+        parse(accountSchema, req.body),
+      ),
     ),
   ),
 );

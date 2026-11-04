@@ -17,7 +17,8 @@ const BELOW_ZERO = 'Stok tidak boleh kurang dari 0.';
 /** BR-011: Staff never receive cost price or margin. */
 export function productForRole(product, role) {
   if (role === 'staff') {
-    const { cost_price: _cost, ...visible } = product;
+    const visible = { ...product };
+    delete visible.cost_price;
     return visible;
   }
   return { ...product, margin: product.sell_price - product.cost_price };

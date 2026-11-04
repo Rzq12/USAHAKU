@@ -44,7 +44,11 @@ categoriesRouter.put(
   requireRole(OWNER),
   handle(async (req, res) =>
     res.json(
-      await categories.updateCategory(req.user, parse(uuid, req.params.id), parse(updateSchema, req.body)),
+      await categories.updateCategory(
+        req.user,
+        parse(uuid, req.params.id),
+        parse(updateSchema, req.body),
+      ),
     ),
   ),
 );
@@ -75,7 +79,9 @@ rulesRouter.get(
 rulesRouter.post(
   '/test',
   requireRole(OWNER, STAFF),
-  handle(async (req, res) => res.json(await categories.testRule(req.user, parse(testSchema, req.body)))),
+  handle(async (req, res) =>
+    res.json(await categories.testRule(req.user, parse(testSchema, req.body))),
+  ),
 );
 rulesRouter.post(
   '/',
@@ -88,7 +94,13 @@ rulesRouter.put(
   '/:id',
   requireRole(OWNER),
   handle(async (req, res) =>
-    res.json(await categories.updateRule(req.user, parse(uuid, req.params.id), parse(ruleSchema, req.body))),
+    res.json(
+      await categories.updateRule(
+        req.user,
+        parse(uuid, req.params.id),
+        parse(ruleSchema, req.body),
+      ),
+    ),
   ),
 );
 rulesRouter.delete(

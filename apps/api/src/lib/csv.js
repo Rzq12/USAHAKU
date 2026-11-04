@@ -25,7 +25,7 @@ function detectDelimiter(firstLine) {
 
 /** Parses CSV text with quoted fields; the delimiter is detected from the header line. */
 export function parseCsv(text) {
-  const clean = text.replace(/^﻿/, '');
+  const clean = text.startsWith(BOM) ? text.slice(BOM.length) : text;
   const delimiter = detectDelimiter(clean.split(/\r?\n/, 1)[0]);
   const rows = [];
   let row = [];

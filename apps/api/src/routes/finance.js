@@ -137,10 +137,13 @@ dashboardRouter.get(
 /* Reports */
 const MAX_RANGE_DAYS = 5 * 366;
 const reportName = z.enum(Object.keys(reports.REPORTS));
-const rangeFields = dateRangeQuery.refine((range) => daysBetween(range.from, range.to) <= MAX_RANGE_DAYS, {
-  path: ['to'],
-  message: 'Rentang tanggal paling lama 5 tahun.',
-});
+const rangeFields = dateRangeQuery.refine(
+  (range) => daysBetween(range.from, range.to) <= MAX_RANGE_DAYS,
+  {
+    path: ['to'],
+    message: 'Rentang tanggal paling lama 5 tahun.',
+  },
+);
 const reportQuery = z
   .object({
     from: dateString,

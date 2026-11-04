@@ -18,7 +18,9 @@ export async function listContacts(q, businessId, filters) {
   }
   if (filters.q) {
     params.push(filters.q);
-    where.push(`(c.name ILIKE '%' || $${params.length} || '%' OR c.phone ILIKE '%' || $${params.length} || '%')`);
+    where.push(
+      `(c.name ILIKE '%' || $${params.length} || '%' OR c.phone ILIKE '%' || $${params.length} || '%')`,
+    );
   }
   const clause = where.join(' AND ');
   const count = await q.query(`SELECT count(*) FROM contacts c WHERE ${clause}`, params);
@@ -42,7 +44,15 @@ export async function insertContact(q, businessId, contact) {
   const { rows } = await q.query(
     `INSERT INTO contacts (business_id, name, type, phone, email, address, notes)
      VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-    [businessId, contact.name, contact.type, contact.phone, contact.email, contact.address, contact.notes],
+    [
+      businessId,
+      contact.name,
+      contact.type,
+      contact.phone,
+      contact.email,
+      contact.address,
+      contact.notes,
+    ],
   );
   return rows[0].id;
 }

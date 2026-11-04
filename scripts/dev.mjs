@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 
 const children = ['apps/api', 'apps/web'].map((workspace) =>
-  spawn('npm', ['run', 'dev', '-w', workspace], { stdio: 'inherit', shell: true }),
+  spawn(`npm run dev -w ${workspace}`, { stdio: 'inherit', shell: true }),
 );
 
 function stopAll() {

@@ -17,7 +17,13 @@ export async function insertDefaultCategories(q, businessId) {
     await q.query(
       `INSERT INTO categories (business_id, name, type, pl_group, system_key)
        VALUES ($1, $2, $3, $4, $5)`,
-      [businessId, category.name, category.type, category.pl_group ?? null, category.system_key ?? null],
+      [
+        businessId,
+        category.name,
+        category.type,
+        category.pl_group ?? null,
+        category.system_key ?? null,
+      ],
     );
   }
 }
@@ -88,7 +94,10 @@ export async function deleteCategory(q, businessId, categoryId) {
     businessId,
     categoryId,
   ]);
-  await q.query('DELETE FROM categories WHERE business_id = $1 AND id = $2', [businessId, categoryId]);
+  await q.query('DELETE FROM categories WHERE business_id = $1 AND id = $2', [
+    businessId,
+    categoryId,
+  ]);
 }
 
 export async function listRules(q, businessId) {
@@ -103,10 +112,10 @@ export async function listRules(q, businessId) {
 }
 
 export async function getRule(q, businessId, ruleId) {
-  const { rows } = await q.query('SELECT * FROM category_rules WHERE business_id = $1 AND id = $2', [
-    businessId,
-    ruleId,
-  ]);
+  const { rows } = await q.query(
+    'SELECT * FROM category_rules WHERE business_id = $1 AND id = $2',
+    [businessId, ruleId],
+  );
   return rows[0];
 }
 
@@ -129,7 +138,10 @@ export async function updateRule(q, businessId, ruleId, rule) {
 }
 
 export async function deleteRule(q, businessId, ruleId) {
-  await q.query('DELETE FROM category_rules WHERE business_id = $1 AND id = $2', [businessId, ruleId]);
+  await q.query('DELETE FROM category_rules WHERE business_id = $1 AND id = $2', [
+    businessId,
+    ruleId,
+  ]);
 }
 
 /** Highest priority wins; on equal priority the longer keyword wins. */

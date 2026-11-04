@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 2,
+  "generatedFrom": "apps/web/tailwind.config.js and apps/web/src/index.css",
+  "shadows": [
+    { "name": "subtle", "value": "rgba(15, 15, 15, 0.04) 0px 1px 2px 0px" },
+    { "name": "card", "value": "rgba(15, 15, 15, 0.08) 0px 4px 12px 0px" },
+    { "name": "mockup", "value": "rgba(15, 15, 15, 0.2) 0px 24px 48px -8px" },
+    { "name": "modal", "value": "rgba(15, 15, 15, 0.16) 0px 16px 48px -8px" }
+  ],
+  "motion": [
+    { "name": "state", "value": "150ms ease" },
+    { "name": "drawer-in", "value": "180ms cubic-bezier(0.16, 1, 0.3, 1)" }
+  ],
+  "breakpoints": [
+    { "name": "sm", "value": "640px" },
+    { "name": "lg", "value": "1024px" }
+  ],
+  "narrative": {
+    "northStar": "One large profit figure on a navy band, calm working screens below it.",
+    "rules": [
+      "Each pastel tint means one kind of money.",
+      "Bold yellow marks the one thing to act on now.",
+      "Shadow only for the card over the navy band and for dialogs."
+    ]
+  }
+}

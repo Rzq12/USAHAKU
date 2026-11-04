@@ -77,7 +77,8 @@ async function postOccurrence(client, rule, date, userId) {
   const account = await getAccount(client, rule.business_id, rule.account_id);
   if (!account || account.is_archived) throw unprocessable(ARCHIVED_ACCOUNT, 'ACCOUNT_ARCHIVED');
   const category = await getCategory(client, rule.business_id, rule.category_id);
-  if (!category || category.is_archived) throw unprocessable(ARCHIVED_CATEGORY, 'CATEGORY_ARCHIVED');
+  if (!category || category.is_archived)
+    throw unprocessable(ARCHIVED_CATEGORY, 'CATEGORY_ARCHIVED');
 
   const transactionId = await insertTransaction(client, {
     businessId: rule.business_id,

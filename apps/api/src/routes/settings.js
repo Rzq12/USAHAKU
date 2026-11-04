@@ -40,7 +40,11 @@ usersRouter.put(
   '/:id',
   handle(async (req, res) =>
     res.json(
-      await users.updateUser(req.user, parse(uuid, req.params.id), parse(updateUserSchema, req.body)),
+      await users.updateUser(
+        req.user,
+        parse(uuid, req.params.id),
+        parse(updateUserSchema, req.body),
+      ),
     ),
   ),
 );
@@ -71,7 +75,10 @@ const businessSchema = z.object({
     .number()
     .min(0)
     .max(5, 'Tarif pajak maksimal 5 persen.')
-    .refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-6, 'Maksimal 2 desimal.'),
+    .refine(
+      (value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-6,
+      'Maksimal 2 desimal.',
+    ),
   tax_threshold: nonNegativeAmount,
   payment_info: optionalText(1000),
 });

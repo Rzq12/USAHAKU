@@ -12,7 +12,9 @@ export async function listProducts(q, businessId, filters) {
   }
   if (filters.q) {
     params.push(filters.q);
-    where.push(`(p.name ILIKE '%' || $${params.length} || '%' OR p.sku ILIKE '%' || $${params.length} || '%')`);
+    where.push(
+      `(p.name ILIKE '%' || $${params.length} || '%' OR p.sku ILIKE '%' || $${params.length} || '%')`,
+    );
   }
   const clause = where.join(' AND ');
   const count = await q.query(`SELECT count(*) FROM products p WHERE ${clause}`, params);

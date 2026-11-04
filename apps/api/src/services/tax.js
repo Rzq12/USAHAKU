@@ -9,7 +9,8 @@ import { basisPointsOf } from '../lib/money.js';
 import { requireActiveAccount } from './accounts.js';
 
 const MISSING_TAXPAYER = 'Lengkapi jenis wajib pajak di Pengaturan.';
-const DISCLAIMER = 'Ini perkiraan. Konfirmasikan tarif dan ketentuan terbaru dengan konsultan pajak.';
+const DISCLAIMER =
+  'Ini perkiraan. Konfirmasikan tarif dan ketentuan terbaru dengan konsultan pajak.';
 
 /**
  * Twelve monthly lines from gross turnover. Individuals pay nothing on cumulative turnover up to

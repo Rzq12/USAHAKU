@@ -24,7 +24,11 @@ function hairline(doc, y) {
 }
 
 function invoiceHeader(doc, { invoice, business, customer }) {
-  doc.fillColor(INK).font('Helvetica-Bold').fontSize(18).text(business.name, PAGE_MARGIN, PAGE_MARGIN);
+  doc
+    .fillColor(INK)
+    .font('Helvetica-Bold')
+    .fontSize(18)
+    .text(business.name, PAGE_MARGIN, PAGE_MARGIN);
   doc.font('Helvetica').fontSize(10).fillColor(MUTED);
   if (business.address) doc.text(business.address, { width: 280 });
   if (business.phone) doc.text(`Telp. ${business.phone}`);
@@ -42,8 +46,15 @@ function invoiceHeader(doc, { invoice, business, customer }) {
   }
 
   doc.y = Math.max(doc.y, 140);
-  doc.fillColor(MUTED).fontSize(9).text('Kepada', PAGE_MARGIN, doc.y + 12);
-  doc.fillColor(INK).font('Helvetica-Bold').fontSize(11).text(customer?.name ?? 'Pelanggan umum');
+  doc
+    .fillColor(MUTED)
+    .fontSize(9)
+    .text('Kepada', PAGE_MARGIN, doc.y + 12);
+  doc
+    .fillColor(INK)
+    .font('Helvetica-Bold')
+    .fontSize(11)
+    .text(customer?.name ?? 'Pelanggan umum');
   doc.font('Helvetica').fontSize(10).fillColor(MUTED);
   if (customer?.address) doc.text(customer.address, { width: 320 });
   if (customer?.phone) doc.text(customer.phone);
@@ -96,7 +107,10 @@ function invoiceItems(doc, items) {
 
 function totalLine(doc, label, value, bold = false) {
   const y = doc.y;
-  doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(bold ? 12 : 10).fillColor(INK);
+  doc
+    .font(bold ? 'Helvetica-Bold' : 'Helvetica')
+    .fontSize(bold ? 12 : 10)
+    .fillColor(INK);
   doc.text(label, 340, y, { width: 90, align: 'right' });
   doc.text(value, 435, y, { width: 112, align: 'right' });
   doc.y = y + (bold ? 20 : 15);
@@ -168,7 +182,11 @@ export function reportPdf(table) {
 
   let y = doc.y;
   doc.font('Helvetica-Bold').fontSize(9).fillColor(MUTED);
-  y = drawRow(table.columns.map((c) => c.label), y) + 4;
+  y =
+    drawRow(
+      table.columns.map((c) => c.label),
+      y,
+    ) + 4;
   hairline(doc, y);
   y += 6;
   doc.font('Helvetica').fontSize(9).fillColor(INK);
@@ -178,7 +196,11 @@ export function reportPdf(table) {
       y = PAGE_MARGIN;
     }
     doc.font(row.emphasis ? 'Helvetica-Bold' : 'Helvetica');
-    y = drawRow(table.columns.map((c) => formatCell(row, c)), y) + 5;
+    y =
+      drawRow(
+        table.columns.map((c) => formatCell(row, c)),
+        y,
+      ) + 5;
   }
   return toBuffer(doc);
 }

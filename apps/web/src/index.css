@@ -1,0 +1,141 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-white text-body text-ink antialiased;
+    font-feature-settings: 'cv11', 'ss03';
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    text-wrap: balance;
+  }
+  ::selection {
+    background: #e6e0f5;
+    color: #1a1a1a;
+  }
+  :focus-visible {
+    outline: 2px solid #5645d4;
+    outline-offset: 2px;
+  }
+  a {
+    text-underline-offset: 3px;
+  }
+  dialog::backdrop {
+    background: rgba(10, 21, 48, 0.45);
+  }
+  input,
+  select,
+  textarea {
+    caret-color: #5645d4;
+  }
+  * {
+    scrollbar-color: #c8c4be transparent;
+    scrollbar-width: thin;
+  }
+}
+
+@layer components {
+  .num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+  }
+  .btn {
+    @apply inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-md px-[18px] text-body-sm font-medium transition-colors duration-150 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-primary text-white hover:bg-primary-pressed active:bg-primary-deep disabled:bg-hairline disabled:text-steel;
+  }
+  .btn-secondary {
+    @apply btn border border-hairline-strong bg-white text-ink hover:bg-surface active:bg-tint-gray disabled:text-steel;
+  }
+  .btn-dark {
+    @apply btn bg-ink-deep text-white hover:bg-charcoal disabled:bg-hairline disabled:text-steel;
+  }
+  .btn-ghost {
+    @apply btn rounded-sm px-3 text-ink hover:bg-surface active:bg-tint-gray disabled:text-steel;
+  }
+  .btn-danger {
+    @apply btn bg-danger-deep text-white hover:bg-[#912018] disabled:bg-hairline disabled:text-steel;
+  }
+  .btn-on-dark {
+    @apply btn bg-white text-ink hover:bg-surface;
+  }
+  .btn-secondary-on-dark {
+    @apply btn border border-ondark-muted text-white hover:bg-navy-mid;
+  }
+  .link {
+    @apply font-medium text-link underline-offset-2 hover:text-link-pressed hover:underline;
+  }
+  .link-tap {
+    @apply link inline-flex min-h-[44px] items-center;
+  }
+  .field-label {
+    @apply mb-1.5 block text-body-sm font-medium text-charcoal;
+  }
+  .field-input {
+    @apply block min-h-[44px] w-full rounded-md border border-hairline-strong bg-white px-4 py-2 text-body text-ink outline-none transition-[box-shadow,border-color] duration-150 placeholder:text-steel focus:border-primary focus:shadow-[inset_0_0_0_1px_#5645d4] disabled:bg-surface disabled:text-slate;
+  }
+  .field-input[aria-invalid='true'] {
+    @apply border-danger focus:shadow-[inset_0_0_0_1px_#e03131];
+  }
+  .card {
+    @apply rounded-lg border border-hairline bg-white;
+  }
+  .pill-tab {
+    @apply inline-flex min-h-[44px] items-center whitespace-nowrap rounded-full border border-hairline px-4 text-body-sm font-medium text-steel transition-colors duration-150 hover:border-hairline-strong hover:text-ink sm:min-h-[36px];
+  }
+  .pill-tab[aria-selected='true'],
+  .pill-tab[aria-pressed='true'],
+  .pill-tab[aria-current='page'] {
+    @apply border-ink-deep bg-ink-deep text-white;
+  }
+  .table-head {
+    @apply whitespace-nowrap border-b border-hairline px-4 py-3 text-left text-micro font-semibold text-slate;
+  }
+  .table-cell {
+    @apply border-b border-hairline-soft px-4 py-3 align-middle text-body-sm;
+  }
+  .skeleton {
+    @apply animate-pulse rounded-sm bg-tint-gray;
+  }
+}
+
+@layer utilities {
+  .sticky-dot {
+    @apply absolute rounded-[3px];
+    box-shadow: rgba(0, 0, 0, 0.25) 0 4px 10px -2px;
+  }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+}
+dialog[open].drawer {
+  animation: drawer-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

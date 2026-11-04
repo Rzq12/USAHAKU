@@ -103,7 +103,11 @@ test('BR-003: an account with transactions is archived, not deleted', async () =
   const onArchived = await business.owner.post('/transactions', expense(business));
   assert.equal(onArchived.status, 400);
 
-  const empty = await business.owner.post('/accounts', { name: 'Kosong', type: 'ewallet', opening_balance: 0 });
+  const empty = await business.owner.post('/accounts', {
+    name: 'Kosong',
+    type: 'ewallet',
+    opening_balance: 0,
+  });
   assert.equal((await business.owner.del(`/accounts/${empty.body.id}`)).status, 204);
 });
 
@@ -118,7 +122,10 @@ test('AC-007 / BR-013: Staff edit their own entry for 24 hours, then only the Ow
 
   assert.equal((await staff.client.put(`/transactions/${id}`, edit)).status, 200);
 
-  await pool.query(`UPDATE transactions SET created_at = now() - interval '25 hours' WHERE id = $1`, [id]);
+  await pool.query(
+    `UPDATE transactions SET created_at = now() - interval '25 hours' WHERE id = $1`,
+    [id],
+  );
   const late = await staff.client.put(`/transactions/${id}`, edit);
   assert.equal(late.status, 403);
   assert.equal(late.body.error.message, 'Transaksi ini sudah tidak bisa diubah. Hubungi pemilik.');
@@ -154,18 +161,30 @@ test('Staff list only their own entries', async () => {
 
 test('soft delete takes a transaction out of balances; list filters work', async () => {
   const business = await newBusiness();
-  const first = await business.owner.post('/transactions', expense(business, { note: 'bayar sewa toko', tags: ['Toko', 'toko'] }));
-  await business.owner.post('/transactions', expense(business, { amount: 1000, occurred_on: '2026-09-01' }));
+  const first = await business.owner.post(
+    '/transactions',
+    expense(business, { note: 'bayar sewa toko', tags: ['Toko', 'toko'] }),
+  );
+  await business.owner.post(
+    '/transactions',
+    expense(business, { amount: 1000, occurred_on: '2026-09-01' }),
+  );
 
   const filtered = (await business.owner.get('/transactions?q=sewa&from=2026-10-01&tag=toko')).body;
   assert.equal(filtered.total, 1);
   assert.deepEqual(filtered.items[0].tags, ['toko']);
   assert.equal(filtered.totals.expense, 250_000);
 
-  assert.equal((await business.owner.del(`/transactions/${first.body.transaction.id}`)).status, 204);
+  assert.equal(
+    (await business.owner.del(`/transactions/${first.body.transaction.id}`)).status,
+    204,
+  );
   const { items } = (await business.owner.get('/accounts')).body;
   assert.equal(items.find((a) => a.name === 'Kas').balance, -1000);
-  assert.equal((await business.owner.get(`/transactions/${first.body.transaction.id}`)).status, 404);
+  assert.equal(
+    (await business.owner.get(`/transactions/${first.body.transaction.id}`)).status,
+    404,
+  );
 });
 
 test('an excluded transaction stays listed and leaves the report totals', async () => {
@@ -188,18 +207,30 @@ test('AC-008: a keyword rule suggests the category; priority, then keyword lengt
   const utilities = business.category('Listrik dan Utilitas');
   const supplies = business.category('Perlengkapan');
   const transport = business.category('Transportasi');
-  await business.owner.post('/category-rules', { keyword: 'Listrik', category_id: utilities.id, priority: 10 });
+  await business.owner.post('/category-rules', {
+    keyword: 'Listrik',
+    category_id: utilities.id,
+    priority: 10,
+  });
 
   const match = await business.owner.post('/category-rules/test', { note: 'bayar LISTRIK toko' });
   assert.equal(match.body.matched_category, utilities.id);
   const none = await business.owner.post('/category-rules/test', { note: 'beli kopi' });
   assert.equal(none.body.matched_category, null);
 
-  await business.owner.post('/category-rules', { keyword: 'toko', category_id: supplies.id, priority: 50 });
+  await business.owner.post('/category-rules', {
+    keyword: 'toko',
+    category_id: supplies.id,
+    priority: 50,
+  });
   const higher = await business.owner.post('/category-rules/test', { note: 'bayar listrik toko' });
   assert.equal(higher.body.matched_category, supplies.id);
 
-  await business.owner.post('/category-rules', { keyword: 'listrik toko', category_id: transport.id, priority: 50 });
+  await business.owner.post('/category-rules', {
+    keyword: 'listrik toko',
+    category_id: transport.id,
+    priority: 50,
+  });
   const longer = await business.owner.post('/category-rules/test', { note: 'bayar listrik toko' });
   assert.equal(longer.body.matched_category, transport.id);
 });
@@ -213,13 +244,25 @@ test('categories in use are archived, not deleted; rules cannot target archived 
   assert.equal(refused.body.error.message, 'Kategori sudah dipakai. Arsipkan saja.');
 
   await business.owner.put(`/categories/${rent.id}`, { is_archived: true });
-  const rule = await business.owner.post('/category-rules', { keyword: 'sewa', category_id: rent.id, priority: 1 });
+  const rule = await business.owner.post('/category-rules', {
+    keyword: 'sewa',
+    category_id: rent.id,
+    priority: 1,
+  });
   assert.equal(rule.status, 400);
 
-  const fresh = await business.owner.post('/categories', { name: 'Baru', type: 'expense', pl_group: 'operating_expense' });
+  const fresh = await business.owner.post('/categories', {
+    name: 'Baru',
+    type: 'expense',
+    pl_group: 'operating_expense',
+  });
   assert.equal((await business.owner.del(`/categories/${fresh.body.id}`)).status, 204);
 
-  const duplicate = await business.owner.post('/categories', { name: 'Gaji', type: 'expense', pl_group: 'operating_expense' });
+  const duplicate = await business.owner.post('/categories', {
+    name: 'Gaji',
+    type: 'expense',
+    pl_group: 'operating_expense',
+  });
   assert.equal(duplicate.status, 400);
   assert.ok(duplicate.body.error.fields.name);
 });
@@ -253,7 +296,11 @@ test('receipts: real image bytes are stored and served to the business; others a
   const tooLarge = await business.owner.postForm(`/transactions/${id}/receipt`, huge);
   assert.equal(tooLarge.status, 400);
   assert.equal(tooLarge.body.error.fields.receipt, 'Foto melebihi 5 MB.');
-  assert.equal((await business.owner.get(`/transactions/${id}`)).status, 200, 'transaction survives');
+  assert.equal(
+    (await business.owner.get(`/transactions/${id}`)).status,
+    200,
+    'transaction survives',
+  );
 });
 
 test('AC-025: the audit log shows who changed a transaction with old and new values', async () => {
@@ -264,7 +311,8 @@ test('AC-025: the audit log shows who changed a transaction with old and new val
   delete edit.type;
   await business.owner.put(`/transactions/${id}`, edit);
 
-  const { items } = (await business.owner.get('/audit-logs?entity_type=transaction&action=update')).body;
+  const { items } = (await business.owner.get('/audit-logs?entity_type=transaction&action=update'))
+    .body;
   assert.equal(items.length, 1);
   assert.equal(items[0].user_name, 'Pemilik Uji');
   assert.ok(items[0].created_at);

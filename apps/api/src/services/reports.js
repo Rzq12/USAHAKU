@@ -61,12 +61,24 @@ function plRows(current, previous) {
     line('Harga pokok penjualan', current.cogs, previous?.cogs),
     line('Laba kotor', current.gross_profit, previous?.gross_profit, true),
     ...categoryNames('operating').map((name) =>
-      line(name, amountOf(current, 'operating', name), amountOf(previous, 'operating', name), false, true),
+      line(
+        name,
+        amountOf(current, 'operating', name),
+        amountOf(previous, 'operating', name),
+        false,
+        true,
+      ),
     ),
     line('Total beban operasional', current.operating_total, previous?.operating_total, true),
     line('Pendapatan lain', current.other_income, previous?.other_income),
     ...categoryNames('other_expense').map((name) =>
-      line(name, amountOf(current, 'other_expense', name), amountOf(previous, 'other_expense', name), false, true),
+      line(
+        name,
+        amountOf(current, 'other_expense', name),
+        amountOf(previous, 'other_expense', name),
+        false,
+        true,
+      ),
     ),
     line('Total beban lain', current.other_expense_total, previous?.other_expense_total, true),
     line('Laba bersih', current.net_profit, previous?.net_profit, true),
@@ -160,7 +172,8 @@ async function cashFlow(businessId, { from, to, account_id }) {
       ...categoryRows,
     ],
     totals,
-    is_empty: moneyIn === 0 && moneyOut === 0 && totals.transfer_net === 0 && categoryRows.length === 0,
+    is_empty:
+      moneyIn === 0 && moneyOut === 0 && totals.transfer_net === 0 && categoryRows.length === 0,
   };
 }
 

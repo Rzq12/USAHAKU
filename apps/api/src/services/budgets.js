@@ -44,7 +44,12 @@ export async function budgetSummary(actor, date) {
   }));
   const budgetTotal = rows.reduce((sum, row) => sum + row.budget, 0);
   const usedTotal = rows.reduce((sum, row) => sum + row.used, 0);
-  return { period, days_left: daysLeft, items, totals: usageFigures(budgetTotal, usedTotal, daysLeft) };
+  return {
+    period,
+    days_left: daysLeft,
+    items,
+    totals: usageFigures(budgetTotal, usedTotal, daysLeft),
+  };
 }
 
 export async function saveBudget(actor, body) {

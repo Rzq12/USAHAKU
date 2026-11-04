@@ -68,9 +68,17 @@ test('BR-012: Rp60,000,000 per month taxes Rp40,000,000 in month 9, then the ful
 });
 
 test('BR-012: a company has no threshold, and rate and threshold are inputs', () => {
-  const company = computeTaxMonths([10_000_000], { taxpayerType: 'company', rateBp: 50, threshold: 0 });
+  const company = computeTaxMonths([10_000_000], {
+    taxpayerType: 'company',
+    rateBp: 50,
+    threshold: 0,
+  });
   assert.equal(company[0].tax, 50_000);
-  const custom = computeTaxMonths([100], { taxpayerType: 'individual', rateBp: 100, threshold: 40 });
+  const custom = computeTaxMonths([100], {
+    taxpayerType: 'individual',
+    rateBp: 100,
+    threshold: 40,
+  });
   assert.equal(custom[0].taxable, 60);
   assert.equal(custom[0].tax, 0, 'rounds down to whole rupiah');
 });

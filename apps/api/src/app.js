@@ -1,6 +1,11 @@
 import express from 'express';
 import cookieParser from 'cookie-parser';
-import { errorHandler, notFoundHandler, requestLog, requireCsrfHeader } from './middleware/common.js';
+import {
+  errorHandler,
+  notFoundHandler,
+  requestLog,
+  requireCsrfHeader,
+} from './middleware/common.js';
 import { requireAuth } from './middleware/auth.js';
 import { authRouter } from './routes/auth.js';
 import { businessRouter, usersRouter } from './routes/settings.js';

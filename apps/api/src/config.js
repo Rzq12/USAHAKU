@@ -6,7 +6,7 @@ function required(name) {
 
 export const config = {
   isProduction: process.env.NODE_ENV === 'production',
-  port: Number(process.env.PORT ?? 3000),
+  port: Number(required('API_PORT')),
   databaseUrl: required('DATABASE_URL'),
   uploadDir: required('UPLOAD_DIR'),
   loginRateLimitPerMinute: Number(process.env.LOGIN_RATE_LIMIT ?? 10),

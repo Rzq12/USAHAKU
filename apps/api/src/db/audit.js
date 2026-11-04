@@ -1,4 +1,10 @@
-const SECRET_FIELDS = new Set(['password', 'password_hash', 'token', 'token_hash', 'temporary_password']);
+const SECRET_FIELDS = new Set([
+  'password',
+  'password_hash',
+  'token',
+  'token_hash',
+  'temporary_password',
+]);
 
 function stripSecrets(values) {
   return Object.fromEntries(Object.entries(values).filter(([key]) => !SECRET_FIELDS.has(key)));
@@ -42,7 +48,8 @@ export async function listAuditLogs(q, businessId, filters) {
   if (filters.user_id) add('a.user_id = ?', filters.user_id);
   if (filters.entity_type) add('a.entity_type = ?', filters.entity_type);
   if (filters.action) add('a.action = ?', filters.action);
-  if (filters.from) add("a.created_at >= (?::date)::timestamp AT TIME ZONE 'Asia/Jakarta'", filters.from);
+  if (filters.from)
+    add("a.created_at >= (?::date)::timestamp AT TIME ZONE 'Asia/Jakarta'", filters.from);
   if (filters.to) {
     add("a.created_at < ((?::date) + 1)::timestamp AT TIME ZONE 'Asia/Jakarta'", filters.to);
   }

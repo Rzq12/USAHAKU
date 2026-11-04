@@ -1,7 +1,15 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { handle, pageResult, uploadSingle } from '../lib/http.js';
-import { amount, dateString, notFarAhead, optionalText, pagination, parse, uuid } from '../lib/schemas.js';
+import {
+  amount,
+  dateString,
+  notFarAhead,
+  optionalText,
+  pagination,
+  parse,
+  uuid,
+} from '../lib/schemas.js';
 import { OWNER, STAFF, requireRole } from '../middleware/auth.js';
 import * as transactions from '../services/transactions.js';
 
@@ -45,7 +53,9 @@ transactionsRouter.post(
   '/',
   requireRole(OWNER, STAFF),
   handle(async (req, res) =>
-    res.status(201).json(await transactions.createTransaction(req.user, parse(createSchema, req.body))),
+    res
+      .status(201)
+      .json(await transactions.createTransaction(req.user, parse(createSchema, req.body))),
   ),
 );
 transactionsRouter.get(

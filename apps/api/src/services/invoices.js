@@ -73,7 +73,10 @@ export async function updateInvoice(actor, invoiceId, body) {
     if (before.status === 'void') throw conflict('Faktur ini sudah dibatalkan.', 'INVOICE_VOID');
 
     if (body.status === 'void') {
-      await invoices.updateInvoice(client, actor.business_id, invoiceId, { ...before, status: 'void' });
+      await invoices.updateInvoice(client, actor.business_id, invoiceId, {
+        ...before,
+        status: 'void',
+      });
       await writeAudit(client, {
         businessId: actor.business_id,
         userId: actor.id,
@@ -110,7 +113,9 @@ export async function buildInvoicePdf(actor, invoiceId) {
   const sale = await sales.getSale(pool, actor.business_id, invoice.sale_id);
   const items = await sales.listSaleItems(pool, actor.business_id, invoice.sale_id);
   const business = await getBusiness(pool, actor.business_id);
-  const customer = sale.contact_id ? await getContact(pool, actor.business_id, sale.contact_id) : null;
+  const customer = sale.contact_id
+    ? await getContact(pool, actor.business_id, sale.contact_id)
+    : null;
   const buffer = await invoicePdf({ invoice, sale, items, business, customer });
   return {
     buffer,

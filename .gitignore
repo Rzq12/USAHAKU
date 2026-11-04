@@ -3,4 +3,5 @@ dist/
 .env
 uploads/
 .impeccable/review/
+.playwright-mcp/
 *.log

@@ -2,7 +2,15 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { inflateRawSync } from 'node:zlib';
 import ExcelJS from 'exceljs';
-import { addContact, addProduct, addUser, newBusiness, paidSale, startApi, stopApi } from './support.js';
+import {
+  addContact,
+  addProduct,
+  addUser,
+  newBusiness,
+  paidSale,
+  startApi,
+  stopApi,
+} from './support.js';
 
 let runDueRules;
 
@@ -80,7 +88,9 @@ test('BR-010: revenue counts on the sale date for credit sales; COGS uses the sa
 
 test('other income counts in profit; a sale income transaction does not count twice', async () => {
   const business = await newBusiness();
-  await paidSale(business, [{ description: 'Jasa', qty: 1, unit_price: 5_000 }], { sale_date: '2026-10-05' });
+  await paidSale(business, [{ description: 'Jasa', qty: 1, unit_price: 5_000 }], {
+    sale_date: '2026-10-05',
+  });
   await business.owner.post('/transactions', {
     type: 'income',
     amount: 700,
@@ -128,7 +138,9 @@ test('reports: sales by product reconciles with revenue; expense shares; aging b
     issue_date: '2026-08-01',
     due_date: '2026-08-31',
   });
-  const aging = (await business.owner.get('/reports/receivable-aging?from=2026-10-01&to=2026-10-20')).body;
+  const aging = (
+    await business.owner.get('/reports/receivable-aging?from=2026-10-01&to=2026-10-20')
+  ).body;
   assert.equal(aging.totals.days_61_90, 900);
   assert.equal(aging.totals.remaining, 900);
 });
@@ -140,19 +152,32 @@ test('reports validate the range and show empty state data; Staff get 403', asyn
 
   const bad = await business.owner.get('/reports/profit-loss?from=2026-10-31&to=2026-10-01');
   assert.equal(bad.status, 400);
-  assert.equal(bad.body.error.fields.to, 'Tanggal akhir harus sama dengan atau setelah tanggal awal.');
+  assert.equal(
+    bad.body.error.fields.to,
+    'Tanggal akhir harus sama dengan atau setelah tanggal awal.',
+  );
   const tooLong = await business.owner.get('/reports/profit-loss?from=2015-01-01&to=2026-01-01');
   assert.equal(tooLong.status, 400);
 
   const empty = await business.owner.get('/reports/profit-loss?from=2026-10-01&to=2026-10-31');
   assert.equal(empty.body.is_empty, true);
 
-  for (const name of ['profit-loss', 'cash-flow', 'sales-by-product', 'expense-by-category', 'receivable-aging']) {
+  for (const name of [
+    'profit-loss',
+    'cash-flow',
+    'sales-by-product',
+    'expense-by-category',
+    'receivable-aging',
+  ]) {
     const url = `/reports/${name}?from=2026-10-01&to=2026-10-31`;
     assert.equal((await staff.client.get(url)).status, 403, name);
     assert.equal((await accountant.client.get(url)).status, 200, name);
   }
-  assert.equal((await staff.client.get('/reports/profit-loss/export?from=2026-10-01&to=2026-10-31&format=csv')).status, 403);
+  assert.equal(
+    (await staff.client.get('/reports/profit-loss/export?from=2026-10-01&to=2026-10-31&format=csv'))
+      .status,
+    403,
+  );
   assert.equal((await staff.client.get('/tax/estimate?year=2026')).status, 403);
   assert.equal((await staff.client.get('/budgets/summary')).status, 403);
   assert.equal((await staff.client.get('/recurring')).status, 403);
@@ -212,7 +237,14 @@ test('AC-018: the Staff dashboard has no profit, balance, or cost figure', async
   const { body } = await staff.client.get('/dashboard');
   assert.equal(body.cards.today_sales, 10_000);
   const text = JSON.stringify(body);
-  for (const forbidden of ['profit', 'balance', 'cost', 'margin', 'expense_breakdown', 'receivables']) {
+  for (const forbidden of [
+    'profit',
+    'balance',
+    'cost',
+    'margin',
+    'expense_breakdown',
+    'receivables',
+  ]) {
     assert.ok(!text.includes(forbidden), forbidden);
   }
 });
@@ -274,7 +306,10 @@ test('AC-016: Rent shows 120% and over budget; inventory and excluded spending d
   assert.equal(again.body.items.length, 1, 'one budget per period, updated in place');
   assert.equal(again.body.items[0].percent, 60);
 
-  const zero = await business.owner.put('/budgets', { period: today, items: [{ category_id: rentCategory.id, amount: 0 }] });
+  const zero = await business.owner.put('/budgets', {
+    period: today,
+    items: [{ category_id: rentCategory.id, amount: 0 }],
+  });
   assert.equal(zero.status, 400);
 });
 
@@ -332,7 +367,11 @@ test('a paused rule posts nothing; resuming skips the paused days', async () => 
 
 test('a failing rule is recorded and does not stop other rules; it retries next run', async () => {
   const business = await newBusiness();
-  const extra = await business.owner.post('/accounts', { name: 'Tutup', type: 'bank', opening_balance: 0 });
+  const extra = await business.owner.post('/accounts', {
+    name: 'Tutup',
+    type: 'bank',
+    opening_balance: 0,
+  });
   const failing = await newRule(business, { account_id: extra.body.id, start_on: '2026-02-01' });
   await newRule(business, { start_on: '2026-02-01', amount: 5 });
   await business.owner.post(`/accounts/${extra.body.id}/archive`);
@@ -343,7 +382,9 @@ test('a failing rule is recorded and does not stop other rules; it retries next 
   assert.equal(list.total, 1);
   assert.equal(list.items[0].amount, 5);
 
-  const rule = (await business.owner.get('/recurring')).body.items.find((r) => r.id === failing.body.id);
+  const rule = (await business.owner.get('/recurring')).body.items.find(
+    (r) => r.id === failing.body.id,
+  );
   assert.equal(rule.next_run_on, '2026-02-01');
   assert.match(rule.last_run_error, /sudah diarsipkan/);
   const audit = (await business.owner.get('/audit-logs?action=recurring_failed')).body;
@@ -378,8 +419,14 @@ test('AC-021: a company with Rp10,000,000 turnover in a month owes Rp50,000', as
   assert.equal(missing.status, 422);
   assert.equal(missing.body.error.message, 'Lengkapi jenis wajib pajak di Pengaturan.');
 
-  await business.owner.put('/business', { ...SETTINGS, taxpayer_type: 'company', tax_threshold: 0 });
-  await paidSale(business, [{ description: 'Jasa', qty: 1, unit_price: 10_000_000 }], { sale_date: '2025-03-15' });
+  await business.owner.put('/business', {
+    ...SETTINGS,
+    taxpayer_type: 'company',
+    tax_threshold: 0,
+  });
+  await paidSale(business, [{ description: 'Jasa', qty: 1, unit_price: 10_000_000 }], {
+    sale_date: '2025-03-15',
+  });
   const { body } = await business.owner.get('/tax/estimate?year=2025');
   assert.equal(body.months[2].tax, 50_000);
   assert.equal(body.total_tax, 50_000);
@@ -393,9 +440,15 @@ test('AC-022: individual threshold over real records, excluding voided sales and
   await business.owner.put('/business', SETTINGS);
   for (let month = 1; month <= 12; month += 1) {
     const sale_date = `2025-${String(month).padStart(2, '0')}-15`;
-    await paidSale(business, [{ description: 'Jasa', qty: 1, unit_price: 60_000_000 }], { sale_date });
+    await paidSale(business, [{ description: 'Jasa', qty: 1, unit_price: 60_000_000 }], {
+      sale_date,
+    });
   }
-  const voided = await paidSale(business, [{ description: 'Salah', qty: 1, unit_price: 999_000_000 }], { sale_date: '2025-01-20' });
+  const voided = await paidSale(
+    business,
+    [{ description: 'Salah', qty: 1, unit_price: 999_000_000 }],
+    { sale_date: '2025-01-20' },
+  );
   await business.owner.post(`/sales/${voided.body.sale.id}/void`);
 
   const { body } = await business.owner.get('/tax/estimate?year=2025');
@@ -434,7 +487,8 @@ function importForm(business, text, extra = {}) {
 
 test('import: headers first, then a row preview; valid rows are saved', async () => {
   const business = await newBusiness();
-  const text = 'tanggal,nominal,catatan\n2026-01-05,-50000,listrik\n05/01/2026,75.000,jual\nsalah,10,x\n2026-01-06,10.5,y\n';
+  const text =
+    'tanggal,nominal,catatan\n2026-01-05,-50000,listrik\n05/01/2026,75.000,jual\nsalah,10,x\n2026-01-06,10.5,y\n';
 
   const headers = await business.owner.postForm('/import/preview', csvFile(text));
   assert.equal(headers.status, 200);
@@ -460,7 +514,8 @@ test('import: headers first, then a row preview; valid rows are saved', async ()
 
 test('AC-023 / BR-014: a row identical to an existing one is a duplicate and skipped by default', async () => {
   const business = await newBusiness();
-  const text = 'tanggal,nominal,catatan\n2026-02-01,-1000,bensin\n2026-02-01,-1000,bensin\n2026-02-02,-1000,bensin\n';
+  const text =
+    'tanggal,nominal,catatan\n2026-02-01,-1000,bensin\n2026-02-01,-1000,bensin\n2026-02-02,-1000,bensin\n';
   const first = await business.owner.postForm('/import/commit', importForm(business, text));
   assert.deepEqual(first.body.summary, { imported: 2, skipped: 1, failed: 0 });
 
@@ -484,7 +539,10 @@ test('import limits: 5,001 rows, 5 MB, and unreadable files are refused with not
   assert.equal(tooMany.status, 400);
   assert.equal(tooMany.body.error.message, 'File melebihi 5.000 baris.');
 
-  const big = await business.owner.postForm('/import/preview', csvFile('x'.repeat(5 * 1024 * 1024 + 1)));
+  const big = await business.owner.postForm(
+    '/import/preview',
+    csvFile('x'.repeat(5 * 1024 * 1024 + 1)),
+  );
   assert.equal(big.status, 400);
   assert.equal(big.body.error.fields.file, 'File melebihi 5 MB.');
 
@@ -549,10 +607,22 @@ test('AC-024: the export ZIP has every entity as UTF-8 CSV with a header row, an
   assert.equal(response.headers.get('content-type'), 'application/zip');
   const files = readZip(response.body);
   const expected = [
-    'accounts', 'categories', 'contacts', 'debts', 'invoices', 'payments', 'products',
-    'sale_items', 'sales', 'stock_movements', 'transactions',
+    'accounts',
+    'categories',
+    'contacts',
+    'debts',
+    'invoices',
+    'payments',
+    'products',
+    'sale_items',
+    'sales',
+    'stock_movements',
+    'transactions',
   ];
-  assert.deepEqual(Object.keys(files).sort(), expected.map((name) => `${name}.csv`));
+  assert.deepEqual(
+    Object.keys(files).sort(),
+    expected.map((name) => `${name}.csv`),
+  );
   for (const content of Object.values(files)) {
     assert.ok(content.startsWith('﻿'));
     assert.ok(content.split('\r\n')[0].includes('id'));
@@ -566,7 +636,8 @@ test('AC-024: the export ZIP has every entity as UTF-8 CSV with a header row, an
 test('audit log filters and stays read-only', async () => {
   const business = await newBusiness();
   await paidSale(business, [{ description: 'Jasa', qty: 1, unit_price: 100 }]);
-  const { items, total } = (await business.owner.get('/audit-logs?entity_type=sale&action=create')).body;
+  const { items, total } = (await business.owner.get('/audit-logs?entity_type=sale&action=create'))
+    .body;
   assert.equal(total, 1);
   assert.equal(items[0].detail.total, 100);
   const empty = (await business.owner.get('/audit-logs?from=2000-01-01&to=2000-01-02')).body;

@@ -14,7 +14,8 @@ import {
 before(startApi);
 after(stopApi);
 
-const stockOf = async (business, id) => (await business.owner.get(`/products/${id}`)).body.stock_qty;
+const stockOf = async (business, id) =>
+  (await business.owner.get(`/products/${id}`)).body.stock_qty;
 const balanceOf = async (business, name) =>
   (await business.owner.get('/accounts')).body.items.find((a) => a.name === name).balance;
 
@@ -29,10 +30,10 @@ test('AC-010 / BR-004: a sale of 3 from stock 10 leaves 7 and writes a movement'
   assert.equal(await balanceOf(business, 'Kas'), 30_000);
 
   const { items } = (await business.owner.get(`/products/${product.id}/movements`)).body;
-  assert.deepEqual(
-    items.map((m) => [m.movement_type, m.qty]).sort(),
-    [['opening', 10], ['sale', -3]],
-  );
+  assert.deepEqual(items.map((m) => [m.movement_type, m.qty]).sort(), [
+    ['opening', 10],
+    ['sale', -3],
+  ]);
   assert.equal(sale.body.sale.items[0].unit_cost, 6_000);
 });
 
@@ -76,7 +77,9 @@ test('SRS-F-008: when a later step fails, no part of the sale is stored', async 
   assert.equal((await business.owner.get('/transactions')).body.total, 0);
 
   // A failure past the stock step: the audit entry cannot be written, so everything rolls back.
-  await pool.query(`ALTER TABLE audit_logs ADD CONSTRAINT block_sale CHECK (entity_type <> 'sale') NOT VALID`);
+  await pool.query(
+    `ALTER TABLE audit_logs ADD CONSTRAINT block_sale CHECK (entity_type <> 'sale') NOT VALID`,
+  );
   try {
     const failed = await paidSale(business, [{ product_id: product.id, qty: 1, unit_price: 100 }]);
     assert.equal(failed.status, 500);
@@ -113,16 +116,23 @@ test('a credit sale creates a receivable and no income; credit needs a customer'
   assert.equal(debt.amount, 500_000);
   assert.equal(debt.status, 'open');
   assert.equal((await business.owner.get('/transactions')).body.total, 0);
-  assert.equal((await business.owner.get(`/sales/${sale.body.sale.id}`)).body.payment_status, 'open');
+  assert.equal(
+    (await business.owner.get(`/sales/${sale.body.sale.id}`)).body.payment_status,
+    'open',
+  );
 });
 
 test('discount cannot exceed the subtotal; free-text lines have no stock effect or cost', async () => {
   const business = await newBusiness();
-  const tooMuch = await paidSale(business, [{ description: 'Jasa', qty: 1, unit_price: 100 }], { discount: 101 });
+  const tooMuch = await paidSale(business, [{ description: 'Jasa', qty: 1, unit_price: 100 }], {
+    discount: 101,
+  });
   assert.equal(tooMuch.status, 400);
   assert.ok(tooMuch.body.error.fields.discount);
 
-  const sale = await paidSale(business, [{ description: 'Jasa', qty: 1.5, unit_price: 1_000 }], { discount: 500 });
+  const sale = await paidSale(business, [{ description: 'Jasa', qty: 1.5, unit_price: 1_000 }], {
+    discount: 500,
+  });
   assert.equal(sale.body.sale.total, 1_000);
   assert.equal(sale.body.sale.items[0].unit_cost, 0);
 });
@@ -206,7 +216,9 @@ test('AC-009 / BR-011: Staff never receive cost price or margin', async () => {
   assert.equal(sale.status, 201);
   assert.equal(sale.body.sale.items[0].unit_cost, undefined);
   assert.equal(sale.body.sale.items[0].line_cost, undefined);
-  assert.ok(!JSON.stringify((await staff.client.get(`/sales/${sale.body.sale.id}`)).body).includes('cost'));
+  assert.ok(
+    !JSON.stringify((await staff.client.get(`/sales/${sale.body.sale.id}`)).body).includes('cost'),
+  );
 
   const owned = (await business.owner.get(`/products/${product.id}`)).body;
   assert.equal(owned.cost_price, 6_000);
@@ -255,21 +267,45 @@ test('restock raises stock and can create an Inventory Purchase expense; adjustm
   const pl = (await business.owner.get(`/reports/profit-loss?from=${today}&to=${today}`)).body;
   assert.equal(pl.totals.operating_expenses, 0, 'BR-010: inventory purchases are not expenses');
 
-  const noReason = await business.owner.post(`/products/${product.id}/stock`, { kind: 'adjustment', qty_delta: -1 });
+  const noReason = await business.owner.post(`/products/${product.id}/stock`, {
+    kind: 'adjustment',
+    qty_delta: -1,
+  });
   assert.equal(noReason.status, 400);
-  const below = await business.owner.post(`/products/${product.id}/stock`, { kind: 'adjustment', qty_delta: -31, reason: 'rusak total' });
+  const below = await business.owner.post(`/products/${product.id}/stock`, {
+    kind: 'adjustment',
+    qty_delta: -31,
+    reason: 'rusak total',
+  });
   assert.equal(below.status, 422);
   assert.equal(below.body.error.message, 'Stok tidak boleh kurang dari 0.');
-  const adjust = await business.owner.post(`/products/${product.id}/stock`, { kind: 'adjustment', qty_delta: -1.5, reason: 'rusak kemasan' });
+  const adjust = await business.owner.post(`/products/${product.id}/stock`, {
+    kind: 'adjustment',
+    qty_delta: -1.5,
+    reason: 'rusak kemasan',
+  });
   assert.equal(adjust.body.stock_qty, 28.5);
 });
 
 test('duplicate product name or SKU returns a field error; inactive products leave the picker', async () => {
   const business = await newBusiness();
   const product = await addProduct(business, { name: 'Teh', sku: 'T-1' });
-  const dupName = await business.owner.post('/products', { name: 'Teh', unit: 'pcs', sell_price: 1, cost_price: 1, track_stock: false });
+  const dupName = await business.owner.post('/products', {
+    name: 'Teh',
+    unit: 'pcs',
+    sell_price: 1,
+    cost_price: 1,
+    track_stock: false,
+  });
   assert.equal(dupName.body.error.fields.name, 'Nama produk sudah dipakai.');
-  const dupSku = await business.owner.post('/products', { name: 'Teh 2', sku: 'T-1', unit: 'pcs', sell_price: 1, cost_price: 1, track_stock: false });
+  const dupSku = await business.owner.post('/products', {
+    name: 'Teh 2',
+    sku: 'T-1',
+    unit: 'pcs',
+    sell_price: 1,
+    cost_price: 1,
+    track_stock: false,
+  });
   assert.equal(dupSku.body.error.fields.sku, 'SKU sudah dipakai.');
 
   await business.owner.put(`/products/${product.id}`, { is_active: false });
@@ -290,14 +326,20 @@ test('AC-012: a contact with an open receivable cannot be archived', async () =>
   });
   const refused = await business.owner.put(`/contacts/${contact.id}`, { is_archived: true });
   assert.equal(refused.status, 409);
-  assert.equal(refused.body.error.message, 'Kontak masih punya hutang atau piutang yang belum lunas.');
+  assert.equal(
+    refused.body.error.message,
+    'Kontak masih punya hutang atau piutang yang belum lunas.',
+  );
 
   await business.owner.post(`/debts/${debt.body.id}/payments`, {
     amount: 1000,
     account_id: business.kas.id,
     paid_on: '2026-10-02',
   });
-  assert.equal((await business.owner.put(`/contacts/${contact.id}`, { is_archived: true })).status, 200);
+  assert.equal(
+    (await business.owner.put(`/contacts/${contact.id}`, { is_archived: true })).status,
+    200,
+  );
 });
 
 test('AC-013 / BR-007: partial payment, overpayment refusal, then paid; voiding restores', async () => {
@@ -348,7 +390,9 @@ test('AC-013 / BR-007: partial payment, overpayment refusal, then paid; voiding 
   assert.equal(closed.status, 409);
 
   const detail = (await business.owner.get(`/debts/${debt.id}`)).body;
-  const reopened = await business.owner.post(`/debts/${debt.id}/payments/${detail.payments[0].id}/void`);
+  const reopened = await business.owner.post(
+    `/debts/${debt.id}/payments/${detail.payments[0].id}/void`,
+  );
   assert.equal(reopened.status, 200);
   assert.equal(reopened.body.status, 'partial');
   assert.equal(reopened.body.remaining, 600_000);
@@ -433,11 +477,16 @@ test('Staff see receivables only and can record a payment without any balance', 
   const list = (await staff.client.get('/debts?type=payable')).body;
   assert.ok(list.items.every((debt) => debt.type === 'receivable'));
   assert.equal((await staff.client.get(`/debts/${payable.body.id}`)).status, 404);
-  assert.equal((await staff.client.post(`/debts/${payable.body.id}/payments`, {
-    amount: 1,
-    account_id: business.kas.id,
-    paid_on: '2026-10-02',
-  })).status, 404);
+  assert.equal(
+    (
+      await staff.client.post(`/debts/${payable.body.id}/payments`, {
+        amount: 1,
+        account_id: business.kas.id,
+        paid_on: '2026-10-02',
+      })
+    ).status,
+    404,
+  );
 
   const paid = await staff.client.post(`/debts/${receivable.body.id}/payments`, {
     amount: 500,
@@ -463,7 +512,8 @@ async function businessWithAddress() {
   return business;
 }
 
-const anySale = (business) => paidSale(business, [{ description: 'Jasa', qty: 1, unit_price: 100_000 }]);
+const anySale = (business) =>
+  paidSale(business, [{ description: 'Jasa', qty: 1, unit_price: 100_000 }]);
 
 test('AC-015 / BR-006: the first invoice is INV/2026/0001; numbers rise and a void is not reused', async () => {
   const business = await businessWithAddress();
@@ -497,7 +547,10 @@ test('BR-006: concurrent invoices get consecutive numbers with no gap or repeat'
     sales.map((sale_id) => business.owner.post('/invoices', { sale_id, issue_date: '2026-05-01' })),
   );
   const numbers = results.map((result) => result.body.number).sort();
-  assert.deepEqual(numbers, Array.from({ length: 8 }, (_, i) => `INV/2026/000${i + 1}`));
+  assert.deepEqual(
+    numbers,
+    Array.from({ length: 8 }, (_, i) => `INV/2026/000${i + 1}`),
+  );
 });
 
 test('invoices: one per sale, address required, status follows the receivable, PDF downloads', async () => {
@@ -507,7 +560,10 @@ test('invoices: one per sale, address required, status follows the receivable, P
     issue_date: '2026-03-01',
   });
   assert.equal(refused.status, 422);
-  assert.equal(refused.body.error.message, 'Lengkapi alamat usaha di Pengaturan sebelum membuat faktur.');
+  assert.equal(
+    refused.body.error.message,
+    'Lengkapi alamat usaha di Pengaturan sebelum membuat faktur.',
+  );
 
   const business = await businessWithAddress();
   const contact = await addContact(business);
@@ -524,7 +580,10 @@ test('invoices: one per sale, address required, status follows the receivable, P
     due_date: '2026-12-31',
   });
   assert.equal(invoice.body.status, 'issued');
-  const second = await business.owner.post('/invoices', { sale_id: sale.body.sale.id, issue_date: '2026-10-01' });
+  const second = await business.owner.post('/invoices', {
+    sale_id: sale.body.sale.id,
+    issue_date: '2026-10-01',
+  });
   assert.equal(second.status, 409);
   assert.equal(second.body.error.message, 'Penjualan ini sudah punya faktur.');
 
