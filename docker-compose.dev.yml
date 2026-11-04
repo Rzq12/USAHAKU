@@ -1,0 +1,17 @@
+# Local development only: PostgreSQL on 127.0.0.1 with throwaway credentials.
+# Start with: docker compose -f docker-compose.dev.yml up -d
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: usahaku
+      POSTGRES_PASSWORD: usahaku_dev
+      POSTGRES_DB: usahaku
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - pgdata_dev:/var/lib/postgresql/data
+      - ./db/dev-init.sql:/docker-entrypoint-initdb.d/dev-init.sql:ro
+
+volumes:
+  pgdata_dev:

@@ -1,0 +1,12 @@
+{$DOMAIN} {
+	encode gzip
+	tls {
+		protocols tls1.2 tls1.3
+	}
+	handle /api/* {
+		reverse_proxy api:3000
+	}
+	handle {
+		reverse_proxy web:80
+	}
+}
