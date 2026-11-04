@@ -87,6 +87,14 @@ export async function softDeleteBySource(q, businessId, sourceType, sourceId) {
   return rows.map((row) => row.id);
 }
 
+export async function setTransactionSource(q, businessId, transactionId, sourceId) {
+  await q.query('UPDATE transactions SET source_id = $3 WHERE business_id = $1 AND id = $2', [
+    businessId,
+    transactionId,
+    sourceId,
+  ]);
+}
+
 export async function setAttachment(q, businessId, transactionId, attachmentId) {
   await q.query(
     `UPDATE transactions SET attachment_id = $3, updated_at = now()

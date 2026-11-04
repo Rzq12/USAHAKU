@@ -1,7 +1,11 @@
 import { pool, withTx } from '../db/pool.js';
 import * as debts from '../db/debts.js';
 import { getContact } from '../db/contacts.js';
-import { insertTransaction, softDeleteTransaction } from '../db/transactions.js';
+import {
+  insertTransaction,
+  setTransactionSource,
+  softDeleteTransaction,
+} from '../db/transactions.js';
 import { getSystemCategory } from '../db/categories.js';
 import { getAccountBalance } from '../db/accounts.js';
 import { setInvoiceStatusBySale } from '../db/invoices.js';
@@ -126,10 +130,7 @@ export async function recordPayment(actor, debtId, body) {
       paid_on: body.paid_on,
       created_by: actor.id,
     });
-    await client.query(
-      'UPDATE transactions SET source_id = $3 WHERE business_id = $1 AND id = $2',
-      [actor.business_id, transactionId, paymentId],
-    );
+    await setTransactionSource(client, actor.business_id, transactionId, paymentId);
 
     const paidAmount = debt.paid_amount + body.amount;
     const status = debtStatus(debt.amount, paidAmount);

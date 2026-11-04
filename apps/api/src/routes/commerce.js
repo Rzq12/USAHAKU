@@ -48,23 +48,25 @@ const createProductSchema = z.object({
   opening_stock: nonNegativeQty.default(0),
 });
 const updateProductSchema = z.object({ ...productFields, is_active: z.boolean() }).partial();
-const stockSchema = z.discriminatedUnion('kind', [
-  z.object({
-    kind: z.literal('restock'),
-    qty: positiveQty,
-    cost_price: nonNegativeAmount.optional(),
-    record_expense: z.boolean().default(false),
-    account_id: uuid.optional(),
-  }).refine((body) => !body.record_expense || body.account_id, {
+const stockSchema = z
+  .discriminatedUnion('kind', [
+    z.object({
+      kind: z.literal('restock'),
+      qty: positiveQty,
+      cost_price: nonNegativeAmount.optional(),
+      record_expense: z.boolean().default(false),
+      account_id: uuid.optional(),
+    }),
+    z.object({
+      kind: z.literal('adjustment'),
+      qty_delta: quantity.refine((value) => value !== 0, 'Tidak boleh 0.'),
+      reason: z.string().trim().min(3).max(200),
+    }),
+  ])
+  .refine((body) => !body.record_expense || body.account_id, {
     path: ['account_id'],
     message: 'Pilih akun untuk mencatat pengeluaran.',
-  }),
-  z.object({
-    kind: z.literal('adjustment'),
-    qty_delta: quantity.refine((value) => value !== 0, 'Tidak boleh 0.'),
-    reason: z.string().trim().min(3).max(200),
-  }),
-]);
+  });
 const productListQuery = z.object({
   ...pagination,
   q: z.string().max(120).optional(),
