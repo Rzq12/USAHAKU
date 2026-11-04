@@ -1,6 +1,8 @@
 /*
  * Reports read from here. Revenue comes from sales, never from income transactions linked to sales.
  * Transfers and debt payments never reach profit and loss (BR-002, BR-008).
+ * Investing and financing categories (capital, loans, equipment) are cash movements too:
+ * they appear in cash flow but never in profit and loss or tax turnover.
  */
 
 const EXPENSE_LINES = `
@@ -33,9 +35,10 @@ export async function salesTotals(q, businessId, from, to) {
 export async function otherIncome(q, businessId, from, to) {
   const { rows } = await q.query(
     `SELECT COALESCE(SUM(t.amount), 0) AS amount, count(*) AS line_count
-     FROM transactions t
+     FROM transactions t JOIN categories c ON c.id = t.category_id
      WHERE t.business_id = $1 AND t.type = 'income' AND t.deleted_at IS NULL AND NOT t.is_excluded
        AND t.source_type NOT IN ('sale', 'receivable_payment')
+       AND c.cash_activity = 'operating'
        AND t.occurred_on BETWEEN $2 AND $3`,
     [businessId, from, to],
   );
@@ -48,6 +51,7 @@ export async function expensesByCategory(q, businessId, from, to) {
     `SELECT c.id AS category_id, c.name, c.pl_group, SUM(x.amount) AS amount
      FROM (${EXPENSE_LINES}) x
      JOIN categories c ON c.id = x.category_id
+     WHERE c.cash_activity = 'operating'
      GROUP BY c.id, c.name, c.pl_group
      ORDER BY amount DESC`,
     [businessId, from, to],
@@ -66,7 +70,7 @@ export async function dailySeries(q, businessId, from, to) {
      ), expense AS (
        SELECT x.on_date AS day, SUM(x.amount) AS amount
        FROM (${EXPENSE_LINES}) x JOIN categories c ON c.id = x.category_id
-       WHERE c.pl_group <> 'inventory'
+       WHERE c.pl_group <> 'inventory' AND c.cash_activity = 'operating'
        GROUP BY x.on_date
      )
      SELECT days.day::text AS date, COALESCE(r.amount, 0) AS revenue, COALESCE(e.amount, 0) AS expense
@@ -126,13 +130,15 @@ export async function cashFlowByAccount(q, businessId, from, to, accountId) {
 
 export async function cashFlowByCategory(q, businessId, from, to, accountId) {
   const { rows } = await q.query(
-    `SELECT c.name, t.type, SUM(t.amount) AS amount
+    `SELECT c.cash_activity AS activity, t.type,
+       CASE WHEN t.source_type = 'receivable_payment' THEN 'Pelunasan piutang' ELSE c.name END AS name,
+       SUM(t.amount) AS amount
      FROM transactions t JOIN categories c ON c.id = t.category_id
      WHERE t.business_id = $1 AND t.type IN ('income', 'expense')
        AND t.deleted_at IS NULL AND NOT t.is_excluded
        AND t.occurred_on BETWEEN $2 AND $3
        AND ($4::uuid IS NULL OR t.account_id = $4)
-     GROUP BY c.name, t.type
+     GROUP BY 1, 2, 3
      ORDER BY t.type DESC, amount DESC`,
     [businessId, from, to, accountId ?? null],
   );
@@ -159,9 +165,11 @@ export async function turnoverByMonth(q, businessId, year) {
        WHERE s.business_id = $1 AND s.status = 'active'
          AND EXTRACT(YEAR FROM s.sale_date) = $2
        UNION ALL
-       SELECT t.occurred_on, t.amount FROM transactions t
+       SELECT t.occurred_on, t.amount
+       FROM transactions t JOIN categories c ON c.id = t.category_id
        WHERE t.business_id = $1 AND t.type = 'income' AND t.deleted_at IS NULL AND NOT t.is_excluded
          AND t.source_type NOT IN ('sale', 'receivable_payment')
+         AND c.cash_activity = 'operating'
          AND EXTRACT(YEAR FROM t.occurred_on) = $2
      )
      SELECT EXTRACT(MONTH FROM on_date)::int AS month, SUM(amount) AS turnover

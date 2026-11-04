@@ -6,7 +6,8 @@ const ENTITIES = [
   },
   {
     file: 'categories',
-    sql: `SELECT id, parent_id, name, type, pl_group, is_archived, created_at FROM categories
+    sql: `SELECT id, parent_id, name, type, pl_group, cash_activity, is_archived, created_at
+          FROM categories
           WHERE business_id = $1 ORDER BY created_at`,
   },
   {

@@ -50,6 +50,12 @@ export async function updateCategory(actor, categoryId, body) {
       if (before.system_key && next.is_archived) {
         throw conflict('Kategori bawaan sistem tidak dapat diarsipkan.');
       }
+      if (before.system_key && next.cash_activity !== 'operating') {
+        throw fieldError(
+          'cash_activity',
+          'Kategori bawaan sistem selalu termasuk aktivitas operasi.',
+        );
+      }
       if (before.type === 'income') next.pl_group = null;
       const category = await categories.updateCategory(client, actor.business_id, categoryId, next);
       await writeAudit(client, {

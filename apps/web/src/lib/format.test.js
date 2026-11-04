@@ -1,6 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { formatDate, formatQty, groupDigits, parseDigits, periodFor, rupiah } from './format.js';
+import {
+  accounting,
+  formatDate,
+  formatQty,
+  groupDigits,
+  parseDigits,
+  periodFor,
+  rupiah,
+} from './format.js';
 import { compressedSize } from './image.js';
+
+describe('accounting', () => {
+  it('puts negative report amounts in parentheses', () => {
+    expect(accounting(-177000)).toBe('(Rp177.000)');
+    expect(accounting(648000)).toBe('Rp648.000');
+    expect(accounting(0)).toBe('Rp0');
+  });
+});
 
 describe('rupiah', () => {
   it('uses dot thousands and no decimals', () => {

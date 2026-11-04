@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { usePermissions } from '../lib/auth.jsx';
 import { notifyChanged, useDebounced, useFetch, useSubmit } from '../lib/hooks.js';
-import { PL_GROUPS } from '../lib/format.js';
+import { CASH_ACTIVITIES, PL_GROUPS } from '../lib/format.js';
 import { Page } from '../components/Layout.jsx';
 import { ConfirmDialog, Drawer } from '../components/Drawer.jsx';
 import { useToast } from '../components/Toast.jsx';
@@ -26,8 +26,15 @@ const TYPE_TABS = [
   { value: 'income', label: 'Pemasukan' },
 ];
 
+const EMPTY_CATEGORY = {
+  name: '',
+  parent_id: '',
+  pl_group: 'operating_expense',
+  cash_activity: 'operating',
+};
+
 function CategoryDrawer({ open, onClose, category, type, parents, onArchive, onDelete }) {
-  const [form, setForm] = useState({ name: '', parent_id: '', pl_group: 'operating_expense' });
+  const [form, setForm] = useState(EMPTY_CATEGORY);
   useEffect(() => {
     if (open) {
       setForm(
@@ -36,25 +43,24 @@ function CategoryDrawer({ open, onClose, category, type, parents, onArchive, onD
               name: category.name,
               parent_id: category.parent_id ?? '',
               pl_group: category.pl_group ?? 'operating_expense',
+              cash_activity: category.cash_activity,
             }
-          : { name: '', parent_id: '', pl_group: 'operating_expense' },
+          : EMPTY_CATEGORY,
       );
     }
   }, [open, category]);
   const action = useCallback(() => {
     if (category) {
-      return api.put(
-        `/categories/${category.id}`,
-        category.type === 'expense'
-          ? { name: form.name, pl_group: form.pl_group }
-          : { name: form.name },
-      );
+      const changes = { name: form.name, cash_activity: form.cash_activity };
+      if (category.type === 'expense') changes.pl_group = form.pl_group;
+      return api.put(`/categories/${category.id}`, changes);
     }
     return api.post('/categories', {
       name: form.name,
       type,
       parent_id: form.parent_id || null,
       pl_group: type === 'expense' ? form.pl_group : null,
+      cash_activity: form.cash_activity,
     });
   }, [form, category, type]);
   const { submit, pending, fieldErrors, formError } = useSubmit(action, {
@@ -111,7 +117,25 @@ function CategoryDrawer({ open, onClose, category, type, parents, onArchive, onD
             ))}
           </SelectField>
         )}
-        {isExpense && (
+        <SelectField
+          label="Aktivitas arus kas"
+          value={form.cash_activity}
+          onChange={(e) => setForm({ ...form, cash_activity: e.target.value })}
+          error={fieldErrors.cash_activity}
+          disabled={Boolean(category?.system_key)}
+          hint={
+            form.cash_activity === 'operating'
+              ? 'Kegiatan usaha sehari-hari. Masuk ke laba rugi.'
+              : 'Hanya tampil di arus kas. Tidak dihitung sebagai laba, beban, atau omzet pajak.'
+          }
+        >
+          {Object.entries(CASH_ACTIVITIES).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </SelectField>
+        {isExpense && form.cash_activity === 'operating' && (
           <SelectField
             label="Kelompok laba rugi"
             value={form.pl_group}
@@ -385,7 +409,9 @@ export default function Categories() {
                     key={category.id}
                     title={category.parent_id ? `↳ ${category.name}` : category.name}
                     subtitle={[
-                      category.pl_group ? PL_GROUPS[category.pl_group] : null,
+                      category.cash_activity !== 'operating'
+                        ? CASH_ACTIVITIES[category.cash_activity]
+                        : category.pl_group && PL_GROUPS[category.pl_group],
                       `${category.usage_count} transaksi`,
                     ]
                       .filter(Boolean)

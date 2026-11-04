@@ -21,6 +21,12 @@ export function formatRupiah(amount) {
   return `${sign}Rp${digits}`;
 }
 
+/** Financial statement style: 177000 is 177.000 and -177000 is (177.000). */
+export function formatAccounting(amount) {
+  const digits = String(Math.abs(amount)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return amount < 0 ? `(${digits})` : digits;
+}
+
 export function formatQty(qty) {
   return String(Number(qty)).replace('.', ',');
 }

@@ -10,17 +10,20 @@ export const rulesRouter = Router();
 export const tagsRouter = Router();
 
 const plGroup = z.enum(['operating_expense', 'other_expense', 'inventory']);
+const cashActivity = z.enum(['operating', 'investing', 'financing']);
 const createSchema = z.object({
   name: z.string().trim().min(1).max(60),
   type: z.enum(['income', 'expense']),
   parent_id: uuid.nullish().transform((value) => value ?? null),
   pl_group: plGroup.nullish().transform((value) => value ?? null),
+  cash_activity: cashActivity.default('operating'),
 });
 const updateSchema = z
   .object({
     name: z.string().trim().min(1).max(60),
     pl_group: plGroup,
     is_archived: z.boolean(),
+    cash_activity: cashActivity,
   })
   .partial();
 const listQuery = z.object({ include_archived: queryBoolean.default('false') });

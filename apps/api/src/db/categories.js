@@ -10,19 +10,36 @@ const DEFAULT_CATEGORIES = [
   { name: 'Perlengkapan', type: 'expense', pl_group: 'operating_expense' },
   { name: 'Lainnya', type: 'expense', pl_group: 'operating_expense' },
   { name: 'Pajak', type: 'expense', pl_group: 'other_expense', system_key: 'tax' },
+  { name: 'Penjualan Aset', type: 'income', cash_activity: 'investing' },
+  {
+    name: 'Pembelian Peralatan',
+    type: 'expense',
+    pl_group: 'other_expense',
+    cash_activity: 'investing',
+  },
+  { name: 'Modal Pemilik', type: 'income', cash_activity: 'financing' },
+  { name: 'Pinjaman Diterima', type: 'income', cash_activity: 'financing' },
+  {
+    name: 'Angsuran Pinjaman',
+    type: 'expense',
+    pl_group: 'other_expense',
+    cash_activity: 'financing',
+  },
+  { name: 'Prive Pemilik', type: 'expense', pl_group: 'other_expense', cash_activity: 'financing' },
 ];
 
 export async function insertDefaultCategories(q, businessId) {
   for (const category of DEFAULT_CATEGORIES) {
     await q.query(
-      `INSERT INTO categories (business_id, name, type, pl_group, system_key)
-       VALUES ($1, $2, $3, $4, $5)`,
+      `INSERT INTO categories (business_id, name, type, pl_group, system_key, cash_activity)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
       [
         businessId,
         category.name,
         category.type,
         category.pl_group ?? null,
         category.system_key ?? null,
+        category.cash_activity ?? 'operating',
       ],
     );
   }
@@ -31,6 +48,7 @@ export async function insertDefaultCategories(q, businessId) {
 export async function listCategories(q, businessId, includeArchived) {
   const { rows } = await q.query(
     `SELECT c.id, c.parent_id, c.name, c.type, c.pl_group, c.system_key, c.is_archived,
+            c.cash_activity,
             (SELECT count(*) FROM transactions t
              WHERE t.business_id = c.business_id AND t.category_id = c.id AND t.deleted_at IS NULL
             ) AS usage_count
@@ -60,18 +78,32 @@ export async function getSystemCategory(q, businessId, systemKey) {
 
 export async function insertCategory(q, businessId, category) {
   const { rows } = await q.query(
-    `INSERT INTO categories (business_id, parent_id, name, type, pl_group)
-     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [businessId, category.parent_id, category.name, category.type, category.pl_group],
+    `INSERT INTO categories (business_id, parent_id, name, type, pl_group, cash_activity)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    [
+      businessId,
+      category.parent_id,
+      category.name,
+      category.type,
+      category.pl_group,
+      category.cash_activity,
+    ],
   );
   return rows[0];
 }
 
 export async function updateCategory(q, businessId, categoryId, category) {
   const { rows } = await q.query(
-    `UPDATE categories SET name = $3, pl_group = $4, is_archived = $5
+    `UPDATE categories SET name = $3, pl_group = $4, is_archived = $5, cash_activity = $6
      WHERE business_id = $1 AND id = $2 RETURNING *`,
-    [businessId, categoryId, category.name, category.pl_group, category.is_archived],
+    [
+      businessId,
+      categoryId,
+      category.name,
+      category.pl_group,
+      category.is_archived,
+      category.cash_activity,
+    ],
   );
   return rows[0];
 }

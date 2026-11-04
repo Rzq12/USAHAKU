@@ -38,6 +38,7 @@ const GUIDES = [
       'Laba kotor adalah pendapatan dikurangi harga modal barang yang terjual.',
       'Laba bersih adalah laba kotor dikurangi beban, ditambah pendapatan lain.',
       'Transfer, pembayaran piutang atau hutang, dan pembelian stok bukan laba atau beban.',
+      'Modal, pinjaman, dan pembelian peralatan hanya tampil di arus kas, bukan di laba rugi.',
     ],
   },
 ];

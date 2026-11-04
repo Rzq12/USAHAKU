@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { downloadFile, query } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
 import { useFetch } from '../lib/hooks.js';
-import { periodFor, rupiah, todayJakarta } from '../lib/format.js';
+import { accounting, periodFor, todayJakarta } from '../lib/format.js';
 import { Page } from '../components/Layout.jsx';
 import { Icon } from '../components/Icon.jsx';
 import {
@@ -44,48 +44,76 @@ function presetRange(preset, startDay) {
   return current;
 }
 
-function ReportTable({ table }) {
+function rowClass(row) {
+  if (row.double) {
+    return 'bg-surface-soft font-semibold [&>td]:border-b-[3px] [&>td]:border-double [&>td]:border-b-ink';
+  }
+  return row.emphasis ? 'bg-surface-soft font-semibold' : '';
+}
+
+function ReportSection({ section, caption }) {
   const cell = (row, column) => {
     const value = row[column.key];
     if (value === null || value === undefined) return '';
-    return column.money ? rupiah(value) : value;
+    return column.money ? accounting(value) : value;
   };
   return (
-    <div className="card relative overflow-x-auto">
-      <table className="w-full min-w-[420px] border-collapse">
-        <caption className="sr-only">
-          {table.title}, {table.subtitle}
-        </caption>
-        <thead>
-          <tr>
-            {table.columns.map((column) => (
-              <th
-                key={column.key}
-                scope="col"
-                className={`table-head ${column.numeric ? 'text-right' : ''}`}
-              >
-                {column.label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {table.rows.map((row, rowIndex) => (
-            <tr key={rowIndex} className={row.emphasis ? 'bg-surface-soft font-semibold' : ''}>
-              {table.columns.map((column, columnIndex) => (
-                <td
+    <section>
+      {section.title && <h3 className="mb-2 text-h5">{section.title}</h3>}
+      <div className="card relative overflow-x-auto">
+        <table className="w-full min-w-[420px] border-collapse">
+          <caption className="sr-only">
+            {section.title ?? caption}, {caption}
+          </caption>
+          <thead className={section.plain ? 'sr-only' : 'bg-tint-gray'}>
+            <tr>
+              {section.columns.map((column) => (
+                <th
                   key={column.key}
-                  className={`table-cell ${column.numeric ? 'num whitespace-nowrap text-right' : ''} ${
-                    columnIndex === 0 && row.indent ? 'pl-8' : ''
-                  }`}
+                  scope="col"
+                  className={`table-head ${column.numeric ? 'text-right' : ''}`}
                 >
-                  {cell(row, column)}
-                </td>
+                  {column.label}
+                </th>
               ))}
             </tr>
+          </thead>
+          <tbody>
+            {section.rows.map((row, rowIndex) => (
+              <tr key={rowIndex} className={rowClass(row)}>
+                {section.columns.map((column, columnIndex) => (
+                  <td
+                    key={column.key}
+                    className={`table-cell ${column.numeric ? 'num whitespace-nowrap text-right' : ''} ${
+                      columnIndex === 0 && row.indent ? 'pl-8' : ''
+                    }`}
+                  >
+                    {cell(row, column)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function ReportTable({ table }) {
+  const sections = table.sections ?? [{ columns: table.columns, rows: table.rows }];
+  return (
+    <div className="space-y-6">
+      {sections.map((section, index) => (
+        <ReportSection key={section.title ?? index} section={section} caption={table.title} />
+      ))}
+      {table.notes?.length > 0 && (
+        <ul className="space-y-1 text-caption text-slate">
+          {table.notes.map((note) => (
+            <li key={note}>{note}</li>
           ))}
-        </tbody>
-      </table>
+        </ul>
+      )}
     </div>
   );
 }
@@ -177,7 +205,9 @@ export default function Reports() {
               <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
                 <div>
                   <h2 className="text-h4">{table.title}</h2>
-                  <p className="num text-body-sm text-slate">{table.subtitle}</p>
+                  <p className="num text-body-sm text-slate">
+                    {table.subtitle} · {table.basis}
+                  </p>
                 </div>
                 {!table.is_empty && (
                   <div className="flex flex-wrap gap-2">

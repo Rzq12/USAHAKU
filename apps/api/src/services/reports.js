@@ -2,14 +2,17 @@ import ExcelJS from 'exceljs';
 import { pool } from '../db/pool.js';
 import * as reports from '../db/reports.js';
 import { addDays, daysBetween } from '../lib/dates.js';
-import { formatDateId } from '../lib/format.js';
+import { formatDateId, formatDateLong, formatPrintedAt } from '../lib/format.js';
 import { toCsv } from '../lib/csv.js';
 import { reportPdf } from '../lib/pdf.js';
 import { formatQty } from '../lib/money.js';
 
 const money = (key, label) => ({ key, label, numeric: true, money: true });
 const text = (key, label) => ({ key, label });
-const rangeLabel = (from, to) => `${formatDateId(from)} s.d. ${formatDateId(to)}`;
+const periodLabel = (from, to) =>
+  `Untuk periode ${formatDateLong(from)} s.d. ${formatDateLong(to)}`;
+const ACCRUAL_BASIS = 'Basis akrual, dalam Rupiah';
+const LABEL_AMOUNT_COLUMNS = [text('label', 'Keterangan'), money('amount', 'Jumlah')];
 
 async function profitLossFigures(businessId, from, to) {
   const [sales, other, expenses] = await Promise.all([
@@ -47,8 +50,8 @@ function plRows(current, previous) {
   const amountOf = (figures, group, name) =>
     figures?.[group].find((row) => row.name === name)?.amount ?? 0;
 
-  const line = (label, value, previousValue, emphasis = false, indent = false) => {
-    const row = { label, amount: value, emphasis, indent };
+  const line = (label, value, previousValue, emphasis = false, indent = false, double = false) => {
+    const row = { label, amount: value, emphasis, indent, double };
     if (previous) {
       row.previous = previousValue;
       row.change = value - previousValue;
@@ -81,7 +84,7 @@ function plRows(current, previous) {
       ),
     ),
     line('Total beban lain', current.other_expense_total, previous?.other_expense_total, true),
-    line('Laba bersih', current.net_profit, previous?.net_profit, true),
+    line('Laba bersih', current.net_profit, previous?.net_profit, true, false, true),
   ];
 }
 
@@ -98,10 +101,16 @@ async function profitLoss(businessId, { from, to, compare }) {
   const columns = [text('label', 'Keterangan'), money('amount', 'Periode ini')];
   if (previous) columns.push(money('previous', 'Periode sebelumnya'), money('change', 'Selisih'));
   return {
-    title: 'Laba Rugi',
-    subtitle: rangeLabel(from, to),
+    title: 'Laporan Laba Rugi',
+    subtitle: periodLabel(from, to),
+    basis: ACCRUAL_BASIS,
     columns,
     rows: plRows(current, previous),
+    notes: previousRange
+      ? [
+          `Periode sebelumnya: ${formatDateLong(previousRange.from)} s.d. ${formatDateLong(previousRange.to)}.`,
+        ]
+      : [],
     totals: {
       revenue: current.revenue,
       cogs: current.cogs,
@@ -114,6 +123,99 @@ async function profitLoss(businessId, { from, to, compare }) {
     previous_range: previousRange,
     is_empty: !current.has_data && !previous?.has_data,
   };
+}
+
+const CASH_ACTIVITIES = [
+  { key: 'operating', label: 'operasi' },
+  { key: 'investing', label: 'investasi' },
+  { key: 'financing', label: 'pendanaan' },
+];
+
+function activityNet(categories, activity) {
+  return categories
+    .filter((row) => row.activity === activity)
+    .reduce((sum, row) => sum + (row.type === 'income' ? row.amount : -row.amount), 0);
+}
+
+function cashSummaryRows(totals, categories) {
+  const rows = [
+    { label: 'Saldo awal kas dan bank', amount: totals.opening },
+    { label: 'Penerimaan kas', amount: totals.money_in },
+    { label: 'Pengeluaran kas', amount: -totals.money_out },
+    { label: 'Arus kas bersih', amount: totals.net_cash_flow, emphasis: true },
+  ];
+  if (categories.some((row) => row.activity !== 'operating')) {
+    for (const activity of CASH_ACTIVITIES) {
+      rows.push({
+        label: `Dari aktivitas ${activity.label}`,
+        amount: activityNet(categories, activity.key),
+        indent: true,
+      });
+    }
+  }
+  if (totals.transfer_net !== 0) {
+    rows.push({ label: 'Transfer bersih', amount: totals.transfer_net });
+  }
+  if (totals.excluded_net !== 0) {
+    rows.push({ label: 'Transaksi dikecualikan', amount: totals.excluded_net });
+  }
+  rows.push({
+    label: 'Saldo akhir kas dan bank',
+    amount: totals.closing,
+    emphasis: true,
+    double: true,
+  });
+  return rows;
+}
+
+/** One SAK EMKM activity: receipts, payments in parentheses, and the net of the two. */
+function cashActivitySection(activity, categories) {
+  const lines = categories.filter((row) => row.activity === activity.key);
+  const receipts = lines.filter((row) => row.type === 'income');
+  const payments = lines.filter((row) => row.type === 'expense');
+  const sum = (rows) => rows.reduce((total, row) => total + row.amount, 0);
+  const rows = [];
+  if (receipts.length > 0) {
+    rows.push(...receipts.map((row) => ({ label: row.name, amount: row.amount })));
+    rows.push({ label: 'Total penerimaan', amount: sum(receipts), emphasis: true });
+  }
+  if (payments.length > 0) {
+    rows.push(...payments.map((row) => ({ label: row.name, amount: -row.amount })));
+    rows.push({ label: 'Total pengeluaran', amount: -sum(payments), emphasis: true });
+  }
+  rows.push({
+    label: `Arus kas bersih dari aktivitas ${activity.label}`,
+    amount: sum(receipts) - sum(payments),
+    emphasis: true,
+    double: true,
+  });
+  return {
+    title: `Arus kas dari aktivitas ${activity.label}`,
+    plain: true,
+    columns: LABEL_AMOUNT_COLUMNS,
+    rows,
+  };
+}
+
+function cashActivitySections(categories) {
+  return CASH_ACTIVITIES.filter(
+    (activity) =>
+      activity.key === 'operating' || categories.some((row) => row.activity === activity.key),
+  ).map((activity) => cashActivitySection(activity, categories));
+}
+
+function cashFlowNotes(totals, accountId) {
+  const notes = [
+    'Transfer antar akun tidak dihitung sebagai penerimaan atau pengeluaran.',
+    'Aktivitas mengikuti pengaturan pada setiap kategori.',
+  ];
+  if (accountId) notes.push('Laporan ini hanya mencakup satu akun.');
+  if (totals.excluded_net !== 0) {
+    notes.push(
+      'Dikecualikan: transaksi yang ditandai keluar dari laporan. Tetap memengaruhi saldo, tetapi tidak dihitung sebagai penerimaan atau pengeluaran.',
+    );
+  }
+  return notes;
 }
 
 async function cashFlow(businessId, { from, to, account_id }) {
@@ -134,46 +236,48 @@ async function cashFlow(businessId, { from, to, account_id }) {
       account.money_out +
       account.transfer_net +
       account.excluded_net,
-    indent: true,
   }));
   const moneyIn = accountRows.reduce((sum, row) => sum + row.money_in, 0);
   const moneyOut = accountRows.reduce((sum, row) => sum + row.money_out, 0);
-  const categoryRows = categories.map((row) => ({
-    name: row.name,
-    money_in: row.type === 'income' ? row.amount : null,
-    money_out: row.type === 'expense' ? row.amount : null,
-    indent: true,
-  }));
   const totals = {
     opening: accountRows.reduce((sum, row) => sum + row.opening, 0),
     money_in: moneyIn,
     money_out: moneyOut,
+    net_cash_flow: moneyIn - moneyOut,
     transfer_net: accountRows.reduce((sum, row) => sum + row.transfer_net, 0),
     excluded_net: accountRows.reduce((sum, row) => sum + row.excluded_net, 0),
     closing: accountRows.reduce((sum, row) => sum + row.closing, 0),
   };
+  const hasExcluded = accountRows.some((row) => row.excluded_net !== 0);
   return {
-    title: 'Arus Kas',
-    subtitle: rangeLabel(from, to),
-    columns: [
-      text('name', 'Nama'),
-      money('opening', 'Saldo awal'),
-      money('money_in', 'Masuk'),
-      money('money_out', 'Keluar'),
-      money('transfer_net', 'Transfer bersih'),
-      money('excluded_net', 'Dikecualikan'),
-      money('closing', 'Saldo akhir'),
+    title: 'Laporan Arus Kas',
+    subtitle: periodLabel(from, to),
+    basis: 'Basis kas, dalam Rupiah',
+    sections: [
+      {
+        title: 'Ringkasan',
+        plain: true,
+        columns: LABEL_AMOUNT_COLUMNS,
+        rows: cashSummaryRows(totals, categories),
+      },
+      ...cashActivitySections(categories),
+      {
+        title: 'Rincian per akun',
+        columns: [
+          text('name', 'Akun'),
+          money('opening', 'Saldo awal'),
+          money('money_in', 'Masuk'),
+          money('money_out', 'Keluar'),
+          money('transfer_net', 'Transfer bersih'),
+          ...(hasExcluded ? [money('excluded_net', 'Dikecualikan')] : []),
+          money('closing', 'Saldo akhir'),
+        ],
+        rows: [...accountRows, { name: 'Total', ...totals, emphasis: true, double: true }],
+      },
     ],
-    rows: [
-      { name: 'Per akun', emphasis: true },
-      ...accountRows,
-      { name: 'Total', ...totals, emphasis: true },
-      { name: 'Per kategori', emphasis: true },
-      ...categoryRows,
-    ],
+    notes: cashFlowNotes(totals, account_id),
     totals,
-    is_empty:
-      moneyIn === 0 && moneyOut === 0 && totals.transfer_net === 0 && categoryRows.length === 0,
+    is_empty: moneyIn === 0 && moneyOut === 0 && !accountRows.some((row) => row.transfer_net !== 0),
   };
 }
 
@@ -198,8 +302,9 @@ async function salesByProduct(businessId, { from, to }) {
     margin: sales.revenue - sales.cogs,
   };
   return {
-    title: 'Penjualan per Produk',
-    subtitle: rangeLabel(from, to),
+    title: 'Laporan Penjualan per Produk',
+    subtitle: periodLabel(from, to),
+    basis: ACCRUAL_BASIS,
     columns: [
       text('name', 'Produk'),
       { key: 'qty', label: 'Jumlah', numeric: true },
@@ -207,7 +312,7 @@ async function salesByProduct(businessId, { from, to }) {
       money('cogs', 'HPP'),
       money('margin', 'Margin'),
     ],
-    rows: [...rows, { name: 'Total', ...totals, emphasis: true }],
+    rows: [...rows, { name: 'Total', ...totals, emphasis: true, double: true }],
     totals,
     is_empty: lines.length === 0,
   };
@@ -218,8 +323,10 @@ async function expenseByCategory(businessId, { from, to }) {
   const counted = expenses.filter((row) => row.pl_group !== 'inventory');
   const total = counted.reduce((sum, row) => sum + row.amount, 0);
   return {
-    title: 'Pengeluaran per Kategori',
-    subtitle: rangeLabel(from, to),
+    title: 'Laporan Pengeluaran per Kategori',
+    subtitle: periodLabel(from, to),
+    basis: ACCRUAL_BASIS,
+    notes: ['Tidak termasuk pembelian stok serta aktivitas investasi dan pendanaan.'],
     columns: [
       text('name', 'Kategori'),
       money('amount', 'Jumlah'),
@@ -231,7 +338,13 @@ async function expenseByCategory(businessId, { from, to }) {
         amount: row.amount,
         share: `${((row.amount * 100) / total).toFixed(1).replace('.', ',')}%`,
       })),
-      { name: 'Total', amount: total, share: counted.length ? '100%' : '', emphasis: true },
+      {
+        name: 'Total',
+        amount: total,
+        share: counted.length ? '100%' : '',
+        emphasis: true,
+        double: true,
+      },
     ],
     totals: { amount: total },
     is_empty: counted.length === 0,
@@ -266,8 +379,9 @@ async function receivableAging(businessId, { to }) {
     };
   });
   return {
-    title: 'Umur Piutang',
-    subtitle: `Per ${formatDateId(to)}`,
+    title: 'Laporan Umur Piutang',
+    subtitle: `Per ${formatDateLong(to)}`,
+    basis: 'Dalam Rupiah',
     columns: [
       text('name', 'Pelanggan'),
       text('issue_date', 'Tanggal'),
@@ -275,7 +389,7 @@ async function receivableAging(businessId, { to }) {
       ...AGING_BUCKETS.map((bucket) => money(bucket.key, bucket.label)),
       money('remaining', 'Sisa'),
     ],
-    rows: [...rows, { name: 'Total', ...totals, emphasis: true }],
+    rows: [...rows, { name: 'Total', ...totals, emphasis: true, double: true }],
     totals,
     is_empty: rows.length === 0,
   };
@@ -291,9 +405,22 @@ export const REPORTS = {
 
 export const runReport = (actor, name, query) => REPORTS[name](actor.business_id, query);
 
+/** Most reports are one table; Arus Kas has several, each with its own columns. */
+function sectionsOf(table) {
+  return table.sections ?? [{ columns: table.columns, rows: table.rows }];
+}
+
 function csvFile(table, baseName) {
-  const headers = table.columns.map((column) => column.label);
-  const rows = table.rows.map((row) => table.columns.map((column) => row[column.key] ?? ''));
+  const lines = [];
+  sectionsOf(table).forEach((section, index) => {
+    if (index > 0) lines.push([]);
+    if (section.title) lines.push([section.title]);
+    lines.push(section.columns.map((column) => column.label));
+    for (const row of section.rows) {
+      lines.push(section.columns.map((column) => row[column.key] ?? ''));
+    }
+  });
+  const [headers, ...rows] = lines;
   return {
     filename: `${baseName}.csv`,
     contentType: 'text/csv; charset=utf-8',
@@ -301,23 +428,54 @@ function csvFile(table, baseName) {
   };
 }
 
-async function xlsxFile(table, baseName) {
+const XLSX_ACCOUNTING = '"Rp"#,##0;("Rp"#,##0)';
+const XLSX_HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0EEEC' } };
+
+function addXlsxRow(sheet, section, row) {
+  const added = sheet.addRow(section.columns.map((column) => row[column.key] ?? null));
+  if (row.emphasis) added.font = { bold: true };
+  section.columns.forEach((column, index) => {
+    const cell = added.getCell(index + 1);
+    if (column.money) cell.numFmt = XLSX_ACCOUNTING;
+    if (column.numeric) cell.alignment = { horizontal: 'right' };
+    if (row.emphasis) {
+      cell.border = {
+        top: { style: 'thin' },
+        ...(row.double ? { bottom: { style: 'double' } } : {}),
+      };
+    }
+  });
+}
+
+async function xlsxFile(table, baseName, meta) {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet(table.title.slice(0, 31));
+  sheet.addRow([meta.businessName]).font = { bold: true };
   sheet.addRow([table.title]).font = { bold: true, size: 14 };
   sheet.addRow([table.subtitle]);
-  sheet.addRow([]);
-  sheet.addRow(table.columns.map((column) => column.label)).font = { bold: true };
-  for (const row of table.rows) {
-    const added = sheet.addRow(table.columns.map((column) => row[column.key] ?? null));
-    if (row.emphasis) added.font = { bold: true };
+  sheet.addRow([table.basis]);
+  for (const section of sectionsOf(table)) {
+    sheet.addRow([]);
+    if (section.title) sheet.addRow([section.title]).font = { bold: true };
+    const header = sheet.addRow(section.columns.map((column) => column.label));
+    header.font = { bold: true };
+    section.columns.forEach((column, index) => {
+      const cell = header.getCell(index + 1);
+      cell.fill = XLSX_HEADER_FILL;
+      if (column.numeric) cell.alignment = { horizontal: 'right' };
+    });
+    for (const row of section.rows) addXlsxRow(sheet, section, row);
   }
-  table.columns.forEach((column, index) => {
-    const sheetColumn = sheet.getColumn(index + 1);
-    sheetColumn.width = index === 0 ? 34 : 18;
-    if (column.money) sheetColumn.numFmt = '"Rp"#,##0;-"Rp"#,##0';
-    if (column.numeric) sheetColumn.alignment = { horizontal: 'right' };
-  });
+  for (const note of table.notes ?? []) {
+    if (note === table.notes[0]) sheet.addRow([]);
+    sheet.addRow([note]);
+  }
+  sheet.addRow([]);
+  sheet.addRow([`Dicetak ${meta.printedAt} oleh ${meta.printedBy}`]);
+  const columnCount = Math.max(...sectionsOf(table).map((section) => section.columns.length));
+  for (let index = 1; index <= columnCount; index += 1) {
+    sheet.getColumn(index).width = index === 1 ? 34 : 18;
+  }
   return {
     filename: `${baseName}.xlsx`,
     contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -325,11 +483,11 @@ async function xlsxFile(table, baseName) {
   };
 }
 
-async function pdfFile(table, baseName) {
+async function pdfFile(table, baseName, meta) {
   return {
     filename: `${baseName}.pdf`,
     contentType: 'application/pdf',
-    buffer: await reportPdf(table),
+    buffer: await reportPdf({ ...table, sections: sectionsOf(table) }, meta),
   };
 }
 
@@ -338,5 +496,10 @@ const EXPORTERS = { csv: csvFile, xlsx: xlsxFile, pdf: pdfFile };
 /** The file is built from the same table object the screen shows, so totals cannot differ. */
 export async function exportReport(actor, name, query) {
   const table = await runReport(actor, name, query);
-  return EXPORTERS[query.format](table, `${name}_${query.from}_${query.to}`);
+  const meta = {
+    businessName: actor.business_name,
+    printedBy: actor.name,
+    printedAt: formatPrintedAt(new Date()),
+  };
+  return EXPORTERS[query.format](table, `${name}_${query.from}_${query.to}`, meta);
 }

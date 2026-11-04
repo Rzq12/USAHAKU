@@ -20,6 +20,11 @@ export function rupiah(amount) {
   return `${value < 0 ? '-' : ''}Rp${digits}`;
 }
 
+/** Report style: negative amounts in parentheses, like (Rp177.000). */
+export function accounting(amount) {
+  return amount < 0 ? `(${rupiah(-amount)})` : rupiah(amount);
+}
+
 export function groupDigits(value) {
   return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 }
@@ -95,6 +100,11 @@ export const PL_GROUPS = {
   operating_expense: 'Beban operasional',
   other_expense: 'Beban lain',
   inventory: 'Pembelian stok (bukan beban)',
+};
+export const CASH_ACTIVITIES = {
+  operating: 'Aktivitas operasi',
+  investing: 'Aktivitas investasi',
+  financing: 'Aktivitas pendanaan',
 };
 export const FREQUENCIES = { daily: 'Harian', weekly: 'Mingguan', monthly: 'Bulanan' };
 export const SOURCE_TYPES = {

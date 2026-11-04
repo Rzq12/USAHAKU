@@ -41,6 +41,28 @@ typography:
     fontWeight: 600
     lineHeight: 1
     letterSpacing: -0.03em
+  display-sm:
+    fontFamily: Inter Variable
+    fontSize: 44px
+    fontWeight: 600
+    lineHeight: 1
+    letterSpacing: -0.03em
+  auth-heading:
+    fontFamily: Inter Variable
+    fontSize: 32px
+    fontWeight: 600
+    lineHeight: 1.15
+    letterSpacing: -0.02em
+  tile-figure:
+    fontFamily: Inter Variable
+    fontSize: 20px
+    fontWeight: 600
+    lineHeight: 1.25
+  nav-label:
+    fontFamily: Inter Variable
+    fontSize: 11px
+    fontWeight: 500
+    lineHeight: 1.3
   h3:
     fontFamily: Inter Variable
     fontSize: 28px
@@ -136,7 +158,7 @@ The owner asked for the visual language of `Docs/notion-DESIGN.md` at full fidel
 
 ## Typography
 
-One family, Inter Variable, self-hosted. It is the fallback the direction document names, since Notion Sans is proprietary. Tabular numerals (`.num`) on every money figure so columns align. Only the home figure goes above 28px.
+One family, Inter Variable, self-hosted. It is the fallback the direction document names, since Notion Sans is proprietary. Tabular numerals (`.num`) on every money figure so columns align. Only the navy band figures and sign-in headings go above 28px: 64px and 44px on the home figure, 44px and 32px on sign-in. The bottom navigation label is 11px, the one size below 12px, because five tabs must fit a 360px phone.
 
 ## Elevation
 
