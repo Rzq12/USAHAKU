@@ -1,93 +1,25 @@
-import { useCallback, useState } from 'react';
+import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { api, downloadFile } from '../lib/api.js';
-import { usePermissions } from '../lib/auth.jsx';
-import { notifyChanged, useFetch, useSubmit } from '../lib/hooks.js';
-import { formatDate, formatQty, rupiah, todayJakarta } from '../lib/format.js';
+import { api } from '../lib/api.js';
+import { notifyChanged, useFetch } from '../lib/hooks.js';
+import { formatDate, formatQty, rupiah } from '../lib/format.js';
 import { Page } from '../components/Layout.jsx';
-import { ConfirmDialog, Drawer } from '../components/Drawer.jsx';
+import { ConfirmDialog } from '../components/Drawer.jsx';
 import { Icon } from '../components/Icon.jsx';
 import { useToast } from '../components/Toast.jsx';
-import { FormError, Loaded, TextAreaField, TextField } from '../components/ui.jsx';
+import { Loaded } from '../components/ui.jsx';
 import { PaymentBadge } from './saleParts.jsx';
-
-function InvoiceDrawer({ open, onClose, sale }) {
-  const [form, setForm] = useState({
-    issue_date: todayJakarta(),
-    due_date: '',
-    notes: '',
-  });
-  const action = useCallback(
-    () => api.post('/invoices', { sale_id: sale.id, ...form, due_date: form.due_date || null }),
-    [form, sale.id],
-  );
-  const { submit, pending, fieldErrors, formError } = useSubmit(action, {
-    success: (invoice) => `Faktur ${invoice.number} dibuat.`,
-    onDone: () => {
-      notifyChanged();
-      onClose();
-    },
-  });
-  const needsAddress = formError?.includes('alamat usaha');
-  return (
-    <Drawer
-      open={open}
-      onClose={onClose}
-      title="Buat faktur"
-      footer={
-        <button type="button" className="btn-primary" disabled={pending} onClick={() => submit()}>
-          {pending ? 'Membuat...' : 'Buat faktur'}
-        </button>
-      }
-    >
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <TextField
-            label="Tanggal faktur"
-            type="date"
-            value={form.issue_date}
-            onChange={(e) => setForm({ ...form, issue_date: e.target.value })}
-            error={fieldErrors.issue_date}
-          />
-          <TextField
-            label="Jatuh tempo"
-            type="date"
-            value={form.due_date}
-            onChange={(e) => setForm({ ...form, due_date: e.target.value })}
-            error={fieldErrors.due_date}
-          />
-        </div>
-        <TextAreaField
-          label="Catatan pada faktur"
-          value={form.notes}
-          maxLength={500}
-          onChange={(e) => setForm({ ...form, notes: e.target.value })}
-          error={fieldErrors.notes}
-        />
-        <FormError message={formError} />
-        {needsAddress && (
-          <Link to="/pengaturan" className="link-tap text-body-sm">
-            Buka Pengaturan Usaha
-          </Link>
-        )}
-      </div>
-    </Drawer>
-  );
-}
 
 export default function SaleDetail() {
   const { id } = useParams();
   const toast = useToast();
-  const { isOwner, canRecord, canSeeFinancials } = usePermissions();
   const state = useFetch(`/sales/${id}`);
   const [voidOpen, setVoidOpen] = useState(false);
-  const [invoiceOpen, setInvoiceOpen] = useState(false);
-  const [downloadError, setDownloadError] = useState(null);
 
   return (
     <Page narrow>
       <Link to="/penjualan" className="btn-ghost -ml-3 mb-2">
-        <Icon name="back" size={18} /> Penjualan
+        <Icon name="back" size={18} /> Riwayat Penjualan
       </Link>
       <Loaded state={state}>
         {(sale) => {
@@ -131,12 +63,10 @@ export default function SaleDetail() {
                     <dd className="num">-{rupiah(sale.discount)}</dd>
                   </div>
                 )}
-                {canSeeFinancials && (
-                  <div className="flex justify-between">
-                    <dt className="text-slate">Harga pokok</dt>
-                    <dd className="num">{rupiah(cost)}</dd>
-                  </div>
-                )}
+                <div className="flex justify-between">
+                  <dt className="text-slate">Harga pokok</dt>
+                  <dd className="num">{rupiah(cost)}</dd>
+                </div>
                 {sale.account_name && (
                   <div className="flex justify-between">
                     <dt className="text-slate">Masuk ke akun</dt>
@@ -146,37 +76,7 @@ export default function SaleDetail() {
               </dl>
 
               <div className="mt-6 flex flex-wrap gap-2">
-                {sale.invoice_id ? (
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    onClick={() => {
-                      setDownloadError(null);
-                      downloadFile(`/invoices/${sale.invoice_id}/pdf`).catch((error) =>
-                        setDownloadError(error.message),
-                      );
-                    }}
-                  >
-                    <Icon name="download" size={18} /> Unduh faktur {sale.invoice_number}
-                  </button>
-                ) : (
-                  canRecord &&
-                  sale.status === 'active' && (
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      onClick={() => setInvoiceOpen(true)}
-                    >
-                      Buat faktur
-                    </button>
-                  )
-                )}
-                {sale.debt_id && (
-                  <Link to={`/tagihan/${sale.debt_id}`} className="btn-secondary">
-                    Lihat piutang
-                  </Link>
-                )}
-                {isOwner && sale.status === 'active' && (
+                {sale.status === 'active' && (
                   <button
                     type="button"
                     className="btn-ghost text-danger-deep"
@@ -186,15 +86,6 @@ export default function SaleDetail() {
                   </button>
                 )}
               </div>
-              <FormError message={downloadError} />
-
-              {canRecord && sale.status === 'active' && !sale.invoice_id && (
-                <InvoiceDrawer
-                  open={invoiceOpen}
-                  onClose={() => setInvoiceOpen(false)}
-                  sale={sale}
-                />
-              )}
               <ConfirmDialog
                 open={voidOpen}
                 onClose={() => setVoidOpen(false)}

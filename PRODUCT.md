@@ -2,7 +2,7 @@
 
 ## What it is
 
-usahaku is a bookkeeping and finance web app for Indonesian UMKM (micro, small, and medium businesses). It records sales, expenses, stock, receivables, and payables, and shows real profit, cash flow, and a final-tax estimate.
+usahaku is a bookkeeping and finance web app for Indonesian UMKM (micro, small, and medium businesses). It records sales, expenses, and stock, and shows real profit and cash flow. There is one role, the Owner, and three main tasks on one screen.
 
 ## Register
 
@@ -10,9 +10,9 @@ Product UI. Visitors come to complete a task. No marketing site is in scope.
 
 ## Users and their scene
 
-- **Owner (pemilik):** basic skills, little accounting training, checks the business daily on a phone between customers. Wants to know "am I making money" and "who do I chase today".
-- **Staff (kasir):** at a shop counter in daylight, often one hand free, many entries a day. Needs the sale saved in a few taps while a customer waits. Must never see cost, margin, profit, or balances.
-- **Accountant (akuntan):** weekly or monthly on a desktop. Needs exact figures, filters, exports, and the audit log. Read-only.
+- **Owner (pemilik):** an older shop owner with little confidence around technology and no accounting training. Uses a phone or a desktop at the counter. Needs to record a sale or an expense without help, and to see "am I making money today" without reading a report.
+
+Everyone in the shop shares this one account, so anyone holding it can see profit and cost.
 
 ## Brand commitments
 
@@ -22,10 +22,10 @@ Product UI. Visitors come to complete a task. No marketing site is in scope.
 
 ## Tone
 
-Plain Indonesian, the words a shop owner uses: laba, piutang, hutang, stok. Controls name the action. Errors say what happened and what to do next.
+Plain Indonesian, the words a shop owner uses: laba, stok, modal. Controls name the action. Errors say what happened and what to do next.
 
 ## Must not happen
 
-- Anything that makes a figure look more certain than it is: the tax page always says it is an estimate.
 - Invented numbers, sample people, or fake activity. Empty states teach the next step instead.
-- Showing Staff any cost, profit, or balance, in the UI or in an API response.
+- A second way to do the same task, or a screen that needs a menu to be memorized.
+- Small type or small buttons: nothing under 16px, main buttons at least 56px tall.

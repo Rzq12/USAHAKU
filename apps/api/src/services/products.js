@@ -14,19 +14,13 @@ const UNIQUE_MESSAGES = {
 };
 const BELOW_ZERO = 'Stok tidak boleh kurang dari 0.';
 
-/** BR-011: Staff never receive cost price or margin. */
-export function productForRole(product, role) {
-  if (role === 'staff') {
-    const visible = { ...product };
-    delete visible.cost_price;
-    return visible;
-  }
+function withMargin(product) {
   return { ...product, margin: product.sell_price - product.cost_price };
 }
 
 export async function listProducts(actor, filters) {
   const { items, total } = await products.listProducts(pool, actor.business_id, filters);
-  return { items: items.map((p) => productForRole(p, actor.role)), total };
+  return { items: items.map(withMargin), total };
 }
 
 async function requireProduct(q, businessId, productId) {
@@ -36,7 +30,7 @@ async function requireProduct(q, businessId, productId) {
 }
 
 export async function getProduct(actor, productId) {
-  return productForRole(await requireProduct(pool, actor.business_id, productId), actor.role);
+  return withMargin(await requireProduct(pool, actor.business_id, productId));
 }
 
 export async function createProduct(actor, body) {
@@ -63,7 +57,7 @@ export async function createProduct(actor, body) {
         entityId: id,
         detail: { name: body.name, sell_price: body.sell_price, cost_price: body.cost_price },
       });
-      return productForRole(await requireProduct(client, actor.business_id, id), actor.role);
+      return withMargin(await requireProduct(client, actor.business_id, id));
     });
   } catch (error) {
     return rethrowUnique(error, UNIQUE_MESSAGES);
@@ -84,7 +78,7 @@ export async function updateProduct(actor, productId, body) {
         entityId: productId,
         detail: changedFields(before, body),
       });
-      return productForRole(await requireProduct(client, actor.business_id, productId), actor.role);
+      return withMargin(await requireProduct(client, actor.business_id, productId));
     });
   } catch (error) {
     return rethrowUnique(error, UNIQUE_MESSAGES);
@@ -144,7 +138,7 @@ export async function changeStock(actor, productId, body) {
       entityId: productId,
       detail: { kind: body.kind, qty: delta, reason: body.reason ?? null },
     });
-    return productForRole(await requireProduct(client, actor.business_id, productId), actor.role);
+    return withMargin(await requireProduct(client, actor.business_id, productId));
   });
 }
 

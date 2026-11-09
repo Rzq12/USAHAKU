@@ -10,7 +10,6 @@ import {
   parse,
   uuid,
 } from '../lib/schemas.js';
-import { OWNER, STAFF, requireRole } from '../middleware/auth.js';
 import * as transactions from '../services/transactions.js';
 
 export const transactionsRouter = Router();
@@ -51,7 +50,6 @@ transactionsRouter.get(
 );
 transactionsRouter.post(
   '/',
-  requireRole(OWNER, STAFF),
   handle(async (req, res) =>
     res
       .status(201)
@@ -66,7 +64,6 @@ transactionsRouter.get(
 );
 transactionsRouter.put(
   '/:id',
-  requireRole(OWNER, STAFF),
   handle(async (req, res) =>
     res.json(
       await transactions.updateTransaction(
@@ -79,7 +76,6 @@ transactionsRouter.put(
 );
 transactionsRouter.delete(
   '/:id',
-  requireRole(OWNER),
   handle(async (req, res) => {
     await transactions.deleteTransaction(req.user, parse(uuid, req.params.id));
     res.status(204).end();
@@ -87,7 +83,6 @@ transactionsRouter.delete(
 );
 transactionsRouter.post(
   '/:id/receipt',
-  requireRole(OWNER, STAFF),
   uploadSingle('receipt', 'Foto melebihi 5 MB.'),
   handle(async (req, res) =>
     res.json(await transactions.attachReceipt(req.user, parse(uuid, req.params.id), req.file)),

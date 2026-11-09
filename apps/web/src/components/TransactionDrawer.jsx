@@ -3,7 +3,6 @@ import { api } from '../lib/api.js';
 import { notifyChanged, useDebounced, useSubmit } from '../lib/hooks.js';
 import { compressReceipt } from '../lib/image.js';
 import { rupiah, todayJakarta, TRANSACTION_TYPES } from '../lib/format.js';
-import { usePermissions } from '../lib/auth.jsx';
 import { useToast } from './Toast.jsx';
 import { Drawer } from './Drawer.jsx';
 import {
@@ -72,7 +71,6 @@ function toPayload(form) {
 /** Add or edit one transaction. Keeps everything entered when the save or the photo fails. */
 export function TransactionDrawer({ open, onClose, initialType = 'expense', transaction }) {
   const toast = useToast();
-  const { canSeeFinancials } = usePermissions();
   const accounts = useAccounts();
   const categories = useCategories();
   const [form, setForm] = useState(() => emptyForm(initialType));
@@ -158,10 +156,10 @@ export function TransactionDrawer({ open, onClose, initialType = 'expense', tran
 
   const successMessage = useCallback(
     (result) =>
-      result.account_balance !== undefined && canSeeFinancials
+      result.account_balance !== undefined
         ? `Transaksi disimpan. Saldo akun ${rupiah(result.account_balance)}.`
         : 'Transaksi disimpan.',
-    [canSeeFinancials],
+    [],
   );
 
   const { submit, pending, fieldErrors, formError } = useSubmit(save, {
@@ -297,13 +295,15 @@ export function TransactionDrawer({ open, onClose, initialType = 'expense', tran
           error={fieldErrors.note}
           maxLength={500}
         />
-        <TextField
-          label="Tag"
-          hint="Pisahkan dengan koma, paling banyak 10."
-          value={form.tags}
-          onChange={set('tags')}
-          error={fieldErrors.tags}
-        />
+        {isEdit && (
+          <TextField
+            label="Tag"
+            hint="Pisahkan dengan koma, paling banyak 10."
+            value={form.tags}
+            onChange={set('tags')}
+            error={fieldErrors.tags}
+          />
+        )}
         <div>
           <label className="field-label" htmlFor="receipt-input">
             Foto struk

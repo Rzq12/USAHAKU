@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 import { pool } from '../db/pool.js';
 import * as reports from '../db/reports.js';
 import { addDays, daysBetween } from '../lib/dates.js';
-import { formatDateId, formatDateLong, formatPrintedAt } from '../lib/format.js';
+import { formatDateLong, formatPrintedAt } from '../lib/format.js';
 import { toCsv } from '../lib/csv.js';
 import { reportPdf } from '../lib/pdf.js';
 import { formatQty } from '../lib/money.js';
@@ -351,56 +351,11 @@ async function expenseByCategory(businessId, { from, to }) {
   };
 }
 
-const AGING_BUCKETS = [
-  { key: 'days_0_30', label: '0 sampai 30 hari', max: 30 },
-  { key: 'days_31_60', label: '31 sampai 60 hari', max: 60 },
-  { key: 'days_61_90', label: '61 sampai 90 hari', max: 90 },
-  { key: 'days_over_90', label: 'Lebih dari 90 hari', max: Infinity },
-];
-
-export function agingBucket(ageDays) {
-  return AGING_BUCKETS.find((bucket) => ageDays <= bucket.max).key;
-}
-
-async function receivableAging(businessId, { to }) {
-  const receivables = await reports.openReceivables(pool, businessId, to);
-  const totals = Object.fromEntries(AGING_BUCKETS.map((bucket) => [bucket.key, 0]));
-  totals.remaining = 0;
-  const rows = receivables.map((debt) => {
-    const bucket = agingBucket(debt.age_days);
-    totals[bucket] += debt.remaining;
-    totals.remaining += debt.remaining;
-    return {
-      name: debt.contact_name,
-      issue_date: formatDateId(debt.issue_date),
-      age: `${debt.age_days} hari`,
-      remaining: debt.remaining,
-      [bucket]: debt.remaining,
-    };
-  });
-  return {
-    title: 'Laporan Umur Piutang',
-    subtitle: `Per ${formatDateLong(to)}`,
-    basis: 'Dalam Rupiah',
-    columns: [
-      text('name', 'Pelanggan'),
-      text('issue_date', 'Tanggal'),
-      { key: 'age', label: 'Umur', numeric: true },
-      ...AGING_BUCKETS.map((bucket) => money(bucket.key, bucket.label)),
-      money('remaining', 'Sisa'),
-    ],
-    rows: [...rows, { name: 'Total', ...totals, emphasis: true, double: true }],
-    totals,
-    is_empty: rows.length === 0,
-  };
-}
-
 export const REPORTS = {
   'profit-loss': profitLoss,
   'cash-flow': cashFlow,
   'sales-by-product': salesByProduct,
   'expense-by-category': expenseByCategory,
-  'receivable-aging': receivableAging,
 };
 
 export const runReport = (actor, name, query) => REPORTS[name](actor.business_id, query);

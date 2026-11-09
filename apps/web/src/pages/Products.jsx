@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, query } from '../lib/api.js';
-import { usePermissions } from '../lib/auth.jsx';
 import { notifyChanged, useDebounced, useFetch, useSubmit } from '../lib/hooks.js';
 import { formatDateTime, formatQty, rupiah } from '../lib/format.js';
 import { Page } from '../components/Layout.jsx';
@@ -309,11 +308,8 @@ const MOVEMENTS = {
 };
 
 function ProductDetail({ product, onClose, onEdit, onStock, onToggleActive }) {
-  const { isOwner, canSeeFinancials } = usePermissions();
   const movements = useFetch(
-    product && canSeeFinancials && product.track_stock
-      ? `/products/${product.id}/movements?limit=20`
-      : null,
+    product && product.track_stock ? `/products/${product.id}/movements?limit=20` : null,
   );
   return (
     <Drawer
@@ -321,7 +317,6 @@ function ProductDetail({ product, onClose, onEdit, onStock, onToggleActive }) {
       onClose={onClose}
       title={product?.name ?? ''}
       footer={
-        isOwner &&
         product && (
           <>
             <button type="button" className="btn-ghost mr-auto" onClick={onToggleActive}>
@@ -354,20 +349,16 @@ function ProductDetail({ product, onClose, onEdit, onStock, onToggleActive }) {
                   : 'Tidak dilacak'}
               </dd>
             </div>
-            {canSeeFinancials && (
-              <>
-                <div>
-                  <dt className="text-slate">Harga modal</dt>
-                  <dd className="num font-semibold">{rupiah(product.cost_price)}</dd>
-                </div>
-                <div>
-                  <dt className="text-slate">Margin</dt>
-                  <dd className="num font-semibold">{rupiah(product.margin)}</dd>
-                </div>
-              </>
-            )}
+            <div>
+              <dt className="text-slate">Harga modal</dt>
+              <dd className="num font-semibold">{rupiah(product.cost_price)}</dd>
+            </div>
+            <div>
+              <dt className="text-slate">Margin</dt>
+              <dd className="num font-semibold">{rupiah(product.margin)}</dd>
+            </div>
           </dl>
-          {canSeeFinancials && product.track_stock && (
+          {product.track_stock && (
             <section className="mt-6">
               <h3 className="mb-2 text-body-sm font-semibold">Riwayat stok</h3>
               <Loaded state={movements} skeleton={<ListSkeleton rows={2} />}>
@@ -406,7 +397,6 @@ function ProductDetail({ product, onClose, onEdit, onStock, onToggleActive }) {
 export default function Products() {
   const toast = useToast();
   const [params] = useSearchParams();
-  const { isOwner, canSeeFinancials } = usePermissions();
   const [search, setSearch] = useState('');
   const [lowOnly, setLowOnly] = useState(params.get('stok') === 'menipis');
   const [includeInactive, setIncludeInactive] = useState(false);
@@ -433,15 +423,13 @@ export default function Products() {
         title="Produk"
         description="Harga dan stok barang yang Anda jual."
         actions={
-          isOwner && (
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => setDrawer({ open: true, product: null })}
-            >
-              Tambah produk
-            </button>
-          )
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => setDrawer({ open: true, product: null })}
+          >
+            Tambah produk
+          </button>
         }
       />
       <div className="space-y-3">
@@ -451,7 +439,7 @@ export default function Products() {
             setSearch(value);
             setPage(1);
           }}
-          placeholder="Cari nama atau SKU"
+          placeholder="Cari nama barang"
           label="Cari produk"
         />
         <div className="flex flex-wrap gap-2">
@@ -466,16 +454,14 @@ export default function Products() {
           >
             Stok menipis
           </button>
-          {isOwner && (
-            <button
-              type="button"
-              className="pill-tab"
-              aria-pressed={includeInactive}
-              onClick={() => setIncludeInactive(!includeInactive)}
-            >
-              Tampilkan nonaktif
-            </button>
-          )}
+          <button
+            type="button"
+            className="pill-tab"
+            aria-pressed={includeInactive}
+            onClick={() => setIncludeInactive(!includeInactive)}
+          >
+            Tampilkan nonaktif
+          </button>
         </div>
       </div>
       <div className="mt-4">
@@ -490,7 +476,7 @@ export default function Products() {
                     : 'Tambahkan produk agar penjualan cukup dengan beberapa ketukan.'
                 }
                 action={
-                  isOwner && !q && !lowOnly ? (
+                  !q && !lowOnly ? (
                     <button
                       type="button"
                       className="btn-primary"
@@ -511,7 +497,7 @@ export default function Products() {
                       subtitle={[
                         product.sku,
                         rupiah(product.sell_price),
-                        canSeeFinancials ? `margin ${rupiah(product.margin)}` : null,
+                        `margin ${rupiah(product.margin)}`,
                       ]
                         .filter(Boolean)
                         .join(' · ')}

@@ -26,25 +26,7 @@ export function daysBetween(fromDate, toDate) {
   return Math.round((toUtc(toDate).getTime() - toUtc(fromDate).getTime()) / MS_PER_DAY);
 }
 
-function lastDayOfMonth(year, monthIndex) {
-  return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
-}
-
 /** Adds whole months and clamps to the last day of shorter months (31 Jan + 1 = 28 Feb). */
-export function addMonthsClamped(dateString, months) {
-  const [year, month, day] = dateString.split('-').map(Number);
-  const target = new Date(Date.UTC(year, month - 1 + months, 1));
-  const lastDay = lastDayOfMonth(target.getUTCFullYear(), target.getUTCMonth());
-  target.setUTCDate(Math.min(day, lastDay));
-  return toDateString(target);
-}
-
-export function monthsBetween(fromDate, toDate) {
-  const [fromYear, fromMonth] = fromDate.split('-').map(Number);
-  const [toYear, toMonth] = toDate.split('-').map(Number);
-  return (toYear - fromYear) * 12 + (toMonth - fromMonth);
-}
-
 /** BR-009: the reporting period containing a date, given the business period start day. */
 export function periodContaining(dateString, startDay) {
   const [year, month, day] = dateString.split('-').map(Number);

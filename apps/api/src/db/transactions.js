@@ -180,12 +180,3 @@ export async function listTransactions(q, businessId, filters) {
   const { total, income, expense } = summary.rows[0];
   return { items: rows, total, totals: { income, expense, net: income - expense } };
 }
-
-export async function isWithinEditWindow(q, businessId, transactionId) {
-  const { rows } = await q.query(
-    `SELECT created_at > now() - interval '24 hours' AS within
-     FROM transactions WHERE business_id = $1 AND id = $2`,
-    [businessId, transactionId],
-  );
-  return rows[0]?.within ?? false;
-}

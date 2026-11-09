@@ -2,13 +2,11 @@ import cron from 'node-cron';
 import { pool } from '../db/pool.js';
 import { deleteExpiredSessions } from '../db/users.js';
 import { deleteExpiredAuditLogs } from '../db/audit.js';
-import { runDueRules } from '../services/recurring.js';
 
 async function runDailyJob() {
-  const result = await runDueRules();
   await deleteExpiredSessions(pool);
   await deleteExpiredAuditLogs(pool);
-  console.log(JSON.stringify({ level: 'info', message: 'daily job finished', ...result }));
+  console.log(JSON.stringify({ level: 'info', message: 'daily job finished' }));
 }
 
 export function startScheduler() {

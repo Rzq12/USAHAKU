@@ -89,25 +89,6 @@ export async function newBusiness() {
   };
 }
 
-/** Creates a Staff or Accountant user and logs in through the forced password change. */
-export async function addUser(business, role) {
-  const email = uniqueEmail(role);
-  const created = await business.owner.post('/users', {
-    name: `Pengguna ${role}`,
-    email,
-    role,
-    temporary_password: 'sementara-123',
-  });
-  if (created.status !== 201) throw new Error(JSON.stringify(created.body));
-  const client = newClient();
-  await client.post('/auth/login', { email, password: 'sementara-123' });
-  await client.post('/auth/change-password', {
-    current_password: 'sementara-123',
-    new_password: 'sandi-baru-456',
-  });
-  return { client, id: created.body.id, email };
-}
-
 export async function addProduct(business, overrides = {}) {
   const response = await business.owner.post('/products', {
     name: `Produk ${randomUUID().slice(0, 8)}`,
@@ -122,21 +103,138 @@ export async function addProduct(business, overrides = {}) {
   return response.body;
 }
 
-export async function addContact(business, overrides = {}) {
-  const response = await business.owner.post('/contacts', {
-    name: `Kontak ${randomUUID().slice(0, 8)}`,
-    type: 'both',
-    ...overrides,
-  });
-  if (response.status !== 201) throw new Error(JSON.stringify(response.body));
-  return response.body;
-}
-
 export function paidSale(business, items, overrides = {}) {
   return business.owner.post('/sales', {
     items,
-    payment_type: 'paid',
     account_id: business.kas.id,
     ...overrides,
   });
+}
+
+/*
+ * Rows the retired receivables, contacts, and invoice features left behind.
+ * They are written directly so tests can prove old records still behave.
+ */
+async function ownerRow(business) {
+  const { rows } = await pool.query('SELECT id, business_id FROM users WHERE email = $1', [
+    business.email,
+  ]);
+  return rows[0];
+}
+
+export async function insertLegacyContact(business, { name, type = 'both' }) {
+  const { business_id } = await ownerRow(business);
+  const { rows } = await pool.query(
+    'INSERT INTO contacts (business_id, name, type) VALUES ($1, $2, $3) RETURNING id',
+    [business_id, name, type],
+  );
+  return rows[0].id;
+}
+
+export async function insertLegacyCreditSale(
+  business,
+  { contactId, total, saleDate, dueDate, lineCost = 0 },
+) {
+  const owner = await ownerRow(business);
+  const sale = await pool.query(
+    `INSERT INTO sales (business_id, contact_id, sale_date, subtotal, total, payment_type, created_by)
+     VALUES ($1, $2, $3, $4, $4, 'credit', $5) RETURNING id`,
+    [owner.business_id, contactId, saleDate, total, owner.id],
+  );
+  const saleId = sale.rows[0].id;
+  await pool.query(
+    `INSERT INTO sale_items (business_id, sale_id, description, qty, unit_price, unit_cost,
+       line_total, line_cost)
+     VALUES ($1, $2, 'Barang lama', 1, $3, $4, $3, $4)`,
+    [owner.business_id, saleId, total, lineCost],
+  );
+  const debt = await pool.query(
+    `INSERT INTO debts (business_id, type, contact_id, source_type, source_id, issue_date, due_date,
+       amount, created_by)
+     VALUES ($1, 'receivable', $2, 'sale', $3, $4, $5, $6, $7) RETURNING id`,
+    [owner.business_id, contactId, saleId, saleDate, dueDate, total, owner.id],
+  );
+  return { saleId, debtId: debt.rows[0].id };
+}
+
+export async function insertLegacyInvoice(business, { saleId, number, issueDate }) {
+  const owner = await ownerRow(business);
+  const { rows } = await pool.query(
+    `INSERT INTO invoices (business_id, sale_id, number, issue_date, status, created_by)
+     VALUES ($1, $2, $3, $4, 'issued', $5) RETURNING id`,
+    [owner.business_id, saleId, number, issueDate, owner.id],
+  );
+  return rows[0].id;
+}
+
+export async function insertLegacyDebt(
+  business,
+  { type, contactId, amount, categoryId = null, issueDate, dueDate = issueDate },
+) {
+  const owner = await ownerRow(business);
+  const { rows } = await pool.query(
+    `INSERT INTO debts (business_id, type, contact_id, source_type, category_id, issue_date, due_date,
+       amount, created_by)
+     VALUES ($1, $2, $3, 'manual', $4, $5, $6, $7, $8) RETURNING id`,
+    [owner.business_id, type, contactId, categoryId, issueDate, dueDate, amount, owner.id],
+  );
+  return rows[0].id;
+}
+
+export async function insertLegacyDebtPayment(business, { debtId, amount, accountId, paidOn }) {
+  const owner = await ownerRow(business);
+  const debt = (await pool.query('SELECT * FROM debts WHERE id = $1', [debtId])).rows[0];
+  const isReceivable = debt.type === 'receivable';
+  const salesCategory = await pool.query(
+    `SELECT id FROM categories WHERE business_id = $1 AND system_key = 'sales'`,
+    [owner.business_id],
+  );
+  const transaction = await pool.query(
+    `INSERT INTO transactions (business_id, account_id, type, amount, category_id, contact_id,
+       occurred_on, source_type, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+    [
+      owner.business_id,
+      accountId,
+      isReceivable ? 'income' : 'expense',
+      amount,
+      isReceivable ? salesCategory.rows[0].id : debt.category_id,
+      debt.contact_id,
+      paidOn,
+      isReceivable ? 'receivable_payment' : 'payable_payment',
+      owner.id,
+    ],
+  );
+  const transactionId = transaction.rows[0].id;
+  const payment = await pool.query(
+    `INSERT INTO debt_payments (business_id, debt_id, transaction_id, amount, paid_on, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+    [owner.business_id, debtId, transactionId, amount, paidOn, owner.id],
+  );
+  const paymentId = payment.rows[0].id;
+  await pool.query('UPDATE transactions SET source_id = $1 WHERE id = $2', [
+    paymentId,
+    transactionId,
+  ]);
+  const paid = Number(debt.paid_amount) + amount;
+  await pool.query('UPDATE debts SET paid_amount = $1, status = $2 WHERE id = $3', [
+    paid,
+    paid === Number(debt.amount) ? 'paid' : 'partial',
+    debtId,
+  ]);
+  return paymentId;
+}
+
+/** A Staff or Accountant account from before the app had one role. */
+export async function insertLegacyUser(business, role) {
+  const { hashPassword } = await import('../src/services/auth.js');
+  const { business_id } = await ownerRow(business);
+  const email = uniqueEmail(role);
+  const password = 'sandi-lama-123';
+  const { rows } = await pool.query(
+    `INSERT INTO users (business_id, name, email, password_hash, role)
+     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [business_id, `Pengguna ${role}`, email, await hashPassword(password), role],
+  );
+  return { id: rows[0].id, email, password };
 }

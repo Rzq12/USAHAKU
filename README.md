@@ -1,8 +1,10 @@
 # usahaku
 
-Pembukuan dan keuangan untuk UMKM Indonesia: penjualan, pengeluaran, stok, piutang, hutang, faktur, laporan laba rugi, dan perkiraan pajak. Tiga peran: Pemilik, Staf, Akuntan.
+Pembukuan sederhana untuk UMKM Indonesia: penjualan, pengeluaran, stok, dan laporan laba rugi. Satu peran: Pemilik.
 
-Dokumen acuan ada di `Docs/`: PRD, FRD, SRS, dan arah visual `notion-DESIGN.md`. Keputusan desain yang sudah terpasang dicatat di `DESIGN.md`.
+Dokumen acuan ada di `Docs/`: PRD, FRD, SRS, dan arah visual `notion-DESIGN.md`. Versi sederhana yang sekarang berjalan dijelaskan di `Docs/superpowers/specs/2026-11-04-usahaku-sederhana-design.md`. Keputusan desain yang sudah terpasang dicatat di `DESIGN.md`.
+
+`npm run migrate` menonaktifkan akun Staf dan Akuntan lama. Barisnya tetap tersimpan, tetapi akun itu tidak bisa masuk lagi. Data kontak, hutang, piutang, dan faktur lama tetap ada di basis data dan bisa diambil lewat Ekspor Data.
 
 ## Menjalankan untuk pengembangan
 
@@ -58,5 +60,3 @@ docker compose up -d --build
 ```
 
 Migrasi berjalan otomatis saat container API mulai. Jalankan hanya satu instance API karena scheduler ada di dalam proses API. Jadwalkan `scripts/backup.sh` setiap hari untuk cadangan database dan foto struk.
-
-Tarif pajak 0,5% dan batas Rp500.000.000 adalah nilai bawaan yang bisa diubah di Pengaturan Usaha, dan perlu dikonfirmasi ke konsultan pajak sebelum rilis.

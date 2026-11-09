@@ -1,9 +1,9 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api, query } from '../lib/api.js';
-import { usePermissions } from '../lib/auth.jsx';
 import { notifyChanged, useDebounced, useFetch } from '../lib/hooks.js';
 import { formatDate, rupiah, SOURCE_TYPES, TRANSACTION_TYPES } from '../lib/format.js';
-import { useAdd, Page } from '../components/Layout.jsx';
+import { Page } from '../components/Layout.jsx';
 import { ConfirmDialog, Drawer } from '../components/Drawer.jsx';
 import { TransactionDrawer } from '../components/TransactionDrawer.jsx';
 import { useToast } from '../components/Toast.jsx';
@@ -37,7 +37,6 @@ function signed(transaction) {
 }
 
 function DetailDrawer({ transaction, onClose, onEdit, onDelete }) {
-  const { isOwner, canRecord } = usePermissions();
   const lines = transaction && [
     ['Tanggal', formatDate(transaction.occurred_on)],
     [
@@ -62,22 +61,16 @@ function DetailDrawer({ transaction, onClose, onEdit, onDelete }) {
       onClose={onClose}
       title={transaction ? TRANSACTION_TYPES[transaction.type] : ''}
       footer={
-        canRecord && (
-          <>
-            {isOwner && removable && (
-              <button
-                type="button"
-                className="btn-ghost mr-auto text-danger-deep"
-                onClick={onDelete}
-              >
-                Hapus
-              </button>
-            )}
-            <button type="button" className="btn-primary" onClick={onEdit}>
-              Ubah
+        <>
+          {removable && (
+            <button type="button" className="btn-ghost mr-auto text-danger-deep" onClick={onDelete}>
+              Hapus
             </button>
-          </>
-        )
+          )}
+          <button type="button" className="btn-primary" onClick={onEdit}>
+            Ubah
+          </button>
+        </>
       }
     >
       {transaction && (
@@ -116,8 +109,6 @@ function DetailDrawer({ transaction, onClose, onEdit, onDelete }) {
 
 export default function Transactions() {
   const toast = useToast();
-  const { canRecord, isStaff } = usePermissions();
-  const { addTransaction } = useAdd();
   const accounts = useAccounts();
   const categories = useCategories();
   const [filters, setFilters] = useState({
@@ -131,6 +122,7 @@ export default function Transactions() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState(null);
+  const [adding, setAdding] = useState(null);
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const q = useDebounced(search);
@@ -145,22 +137,17 @@ export default function Transactions() {
   return (
     <Page>
       <PageHeader
-        title="Transaksi"
-        description={
-          isStaff
-            ? 'Catatan pemasukan, pengeluaran, dan transfer yang Anda buat.'
-            : 'Semua uang masuk, keluar, dan pindah antar akun.'
-        }
+        title="Riwayat Transaksi"
+        description="Semua uang masuk, keluar, dan pindah antar akun."
         actions={
-          canRecord && (
-            <button
-              type="button"
-              className="btn-primary hidden lg:inline-flex"
-              onClick={() => addTransaction('expense')}
-            >
-              Catat pengeluaran
+          <>
+            <button type="button" className="btn-secondary" onClick={() => setAdding('income')}>
+              Pemasukan lain
             </button>
-          )
+            <button type="button" className="btn-secondary" onClick={() => setAdding('transfer')}>
+              Transfer
+            </button>
+          </>
         }
       />
       <div className="space-y-3">
@@ -231,14 +218,10 @@ export default function Transactions() {
                     : 'Catat pengeluaran pertama, atau penjualan lunas akan masuk otomatis.'
                 }
                 action={
-                  !hasFilter && canRecord ? (
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      onClick={() => addTransaction('expense')}
-                    >
-                      Catat transaksi pertama
-                    </button>
+                  !hasFilter ? (
+                    <Link to="/pengeluaran/baru" className="btn-primary">
+                      Catat pengeluaran pertama
+                    </Link>
                   ) : undefined
                 }
               />
@@ -307,6 +290,11 @@ export default function Transactions() {
         }}
       />
       <TransactionDrawer
+        open={Boolean(adding)}
+        initialType={adding ?? undefined}
+        onClose={() => setAdding(null)}
+      />
+      <TransactionDrawer
         open={Boolean(editing)}
         transaction={editing}
         onClose={() => setEditing(null)}
@@ -317,7 +305,7 @@ export default function Transactions() {
         title="Hapus transaksi ini?"
         body={
           deleting
-            ? `${signed(deleting)} pada ${formatDate(deleting.occurred_on)} keluar dari saldo dan laporan. Riwayatnya tetap ada di log aktivitas.`
+            ? `${signed(deleting)} pada ${formatDate(deleting.occurred_on)} keluar dari saldo dan laporan.`
             : ''
         }
         confirmLabel="Hapus transaksi"

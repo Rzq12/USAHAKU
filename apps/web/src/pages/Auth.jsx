@@ -41,7 +41,7 @@ export function Login() {
   return (
     <AuthShell
       heading="Tahu laba usaha Anda hari ini"
-      lead="Masuk untuk mencatat penjualan, memantau piutang, dan melihat laba sebenarnya."
+      lead="Masuk untuk mencatat penjualan dan pengeluaran, lalu melihat laba sebenarnya."
       footer={
         <>
           Belum punya akun?{' '}

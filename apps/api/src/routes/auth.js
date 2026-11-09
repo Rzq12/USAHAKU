@@ -82,9 +82,9 @@ authRouter.get(
   '/me',
   requireAuth,
   handle(async (req, res) => {
-    const { id, name, email: userEmail, role, must_change_password } = req.user;
+    const { id, name, email: userEmail } = req.user;
     res.json({
-      user: { id, name, email: userEmail, role, must_change_password },
+      user: { id, name, email: userEmail },
       business: { name: req.user.business_name, period_start_day: req.user.period_start_day },
     });
   }),

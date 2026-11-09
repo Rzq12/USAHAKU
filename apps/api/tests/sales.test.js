@@ -1,9 +1,12 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  addContact,
   addProduct,
-  addUser,
+  insertLegacyContact,
+  insertLegacyCreditSale,
+  insertLegacyDebt,
+  insertLegacyDebtPayment,
+  insertLegacyInvoice,
   newBusiness,
   paidSale,
   pool,
@@ -91,37 +94,6 @@ test('SRS-F-008: when a later step fails, no part of the sale is stored', async 
   assert.equal((await business.owner.get('/transactions')).body.total, 0);
 });
 
-test('a credit sale creates a receivable and no income; credit needs a customer', async () => {
-  const business = await newBusiness();
-  const product = await addProduct(business, { opening_stock: 100 });
-  const contact = await addContact(business, { type: 'customer' });
-  const noCustomer = await business.owner.post('/sales', {
-    items: [{ product_id: product.id, qty: 1, unit_price: 500_000 }],
-    payment_type: 'credit',
-    due_date: '2030-01-01',
-  });
-  assert.equal(noCustomer.status, 400);
-  assert.equal(noCustomer.body.error.fields.contact_id, 'Pilih pelanggan untuk penjualan kredit.');
-
-  const sale = await business.owner.post('/sales', {
-    items: [{ product_id: product.id, qty: 1, unit_price: 500_000 }],
-    payment_type: 'credit',
-    contact_id: contact.id,
-    sale_date: '2026-10-01',
-    due_date: '2026-10-31',
-  });
-  assert.equal(sale.status, 201);
-  assert.ok(sale.body.debt_id);
-  const debt = (await business.owner.get(`/debts/${sale.body.debt_id}`)).body;
-  assert.equal(debt.amount, 500_000);
-  assert.equal(debt.status, 'open');
-  assert.equal((await business.owner.get('/transactions')).body.total, 0);
-  assert.equal(
-    (await business.owner.get(`/sales/${sale.body.sale.id}`)).body.payment_status,
-    'open',
-  );
-});
-
 test('discount cannot exceed the subtotal; free-text lines have no stock effect or cost', async () => {
   const business = await newBusiness();
   const tooMuch = await paidSale(business, [{ description: 'Jasa', qty: 1, unit_price: 100 }], {
@@ -154,84 +126,48 @@ test('BR-005: voiding a paid sale restores stock and reverses the income', async
   assert.equal(pl.totals.revenue, 0);
 });
 
-test('BR-005: voiding a credit sale voids the receivable, its payments, and its invoice', async () => {
+test('BR-005: voiding an old credit sale voids the receivable, its payments, and its invoice', async () => {
   const business = await newBusiness();
-  await business.owner.put('/business', {
-    name: 'Toko Uji',
-    address: 'Jl. Uji 1',
-    taxpayer_type: 'individual',
-    period_start_day: 1,
-    tax_rate: 0.5,
-    tax_threshold: 500_000_000,
+  const contactId = await insertLegacyContact(business, { name: 'Bu Sari' });
+  const { saleId, debtId } = await insertLegacyCreditSale(business, {
+    contactId,
+    total: 100_000,
+    saleDate: '2026-10-01',
+    dueDate: '2026-12-31',
   });
-  const contact = await addContact(business);
-  const sale = await business.owner.post('/sales', {
-    items: [{ description: 'Jasa', qty: 1, unit_price: 100_000 }],
-    payment_type: 'credit',
-    contact_id: contact.id,
-    sale_date: '2026-10-01',
-    due_date: '2026-12-31',
+  const invoiceId = await insertLegacyInvoice(business, {
+    saleId,
+    number: 'INV/2026/0001',
+    issueDate: '2026-10-01',
   });
-  const invoice = await business.owner.post('/invoices', {
-    sale_id: sale.body.sale.id,
-    issue_date: '2026-10-01',
-  });
-  await business.owner.post(`/debts/${sale.body.debt_id}/payments`, {
+  await insertLegacyDebtPayment(business, {
+    debtId,
     amount: 40_000,
-    account_id: business.kas.id,
-    paid_on: '2026-10-02',
+    accountId: business.kas.id,
+    paidOn: '2026-10-02',
   });
   assert.equal(await balanceOf(business, 'Kas'), 40_000);
 
-  await business.owner.post(`/sales/${sale.body.sale.id}/void`);
+  const detail = (await business.owner.get(`/sales/${saleId}`)).body;
+  assert.equal(detail.contact_name, 'Bu Sari');
+  assert.equal(detail.debt_id, debtId);
+  assert.equal(detail.payment_status, 'partial');
+  assert.equal(detail.invoice_number, 'INV/2026/0001');
+
+  const voided = await business.owner.post(`/sales/${saleId}/void`);
+  assert.equal(voided.status, 200);
+  assert.equal(voided.body.status, 'void');
   assert.equal(await balanceOf(business, 'Kas'), 0);
-  const debt = (await business.owner.get(`/debts/${sale.body.debt_id}`)).body;
+  const debt = (await pool.query('SELECT status, paid_amount FROM debts WHERE id = $1', [debtId]))
+    .rows[0];
   assert.equal(debt.status, 'void');
-  assert.equal(debt.payments[0].is_void, true);
-  assert.equal((await business.owner.get(`/invoices/${invoice.body.id}`)).body.status, 'void');
-  assert.equal((await business.owner.get('/contacts')).body.items[0].receivable_balance, 0);
-});
-
-test('AC-009 / BR-011: Staff never receive cost price or margin', async () => {
-  const business = await newBusiness();
-  const staff = await addUser(business, 'staff');
-  const product = await addProduct(business);
-
-  for (const body of [
-    (await staff.client.get(`/products/${product.id}`)).body,
-    (await staff.client.get('/products')).body.items[0],
-  ]) {
-    assert.equal(body.cost_price, undefined);
-    assert.equal(body.margin, undefined);
-    assert.equal(body.sell_price, 10_000);
-  }
-  assert.equal((await staff.client.get(`/products/${product.id}/movements`)).status, 403);
-  assert.equal((await staff.client.post('/products', {})).status, 403);
-
-  const sale = await staff.client.post('/sales', {
-    items: [{ product_id: product.id, qty: 1, unit_price: 10_000 }],
-    payment_type: 'paid',
-    account_id: business.kas.id,
-  });
-  assert.equal(sale.status, 201);
-  assert.equal(sale.body.sale.items[0].unit_cost, undefined);
-  assert.equal(sale.body.sale.items[0].line_cost, undefined);
-  assert.ok(
-    !JSON.stringify((await staff.client.get(`/sales/${sale.body.sale.id}`)).body).includes('cost'),
-  );
-
-  const owned = (await business.owner.get(`/products/${product.id}`)).body;
-  assert.equal(owned.cost_price, 6_000);
-  assert.equal(owned.margin, 4_000);
-});
-
-test('Staff see only their own sales and cannot void', async () => {
-  const business = await newBusiness();
-  const staff = await addUser(business, 'staff');
-  const ownerSale = await paidSale(business, [{ description: 'A', qty: 1, unit_price: 100 }]);
-  assert.equal((await staff.client.get('/sales')).body.total, 0);
-  assert.equal((await staff.client.get(`/sales/${ownerSale.body.sale.id}`)).status, 404);
-  assert.equal((await staff.client.post(`/sales/${ownerSale.body.sale.id}/void`)).status, 403);
+  assert.equal(Number(debt.paid_amount), 0);
+  const payment = await pool.query('SELECT is_void FROM debt_payments WHERE debt_id = $1', [
+    debtId,
+  ]);
+  assert.equal(payment.rows[0].is_void, true);
+  const invoice = await pool.query('SELECT status FROM invoices WHERE id = $1', [invoiceId]);
+  assert.equal(invoice.rows[0].status, 'void');
 });
 
 test('low stock: the badge appears at the threshold and the sale warns', async () => {
@@ -314,133 +250,31 @@ test('duplicate product name or SKU returns a field error; inactive products lea
   assert.equal(sale.status, 400);
 });
 
-test('AC-012: a contact with an open receivable cannot be archived', async () => {
+test('AC-014 / BR-008: old debt payments move cash but add nothing to profit and loss', async () => {
   const business = await newBusiness();
-  const contact = await addContact(business);
-  const debt = await business.owner.post('/debts', {
+  const contactId = await insertLegacyContact(business, { name: 'Pak Budi' });
+  const receivable = await insertLegacyDebt(business, {
     type: 'receivable',
-    contact_id: contact.id,
-    amount: 1000,
-    issue_date: '2026-10-01',
-    due_date: '2026-10-31',
-  });
-  const refused = await business.owner.put(`/contacts/${contact.id}`, { is_archived: true });
-  assert.equal(refused.status, 409);
-  assert.equal(
-    refused.body.error.message,
-    'Kontak masih punya hutang atau piutang yang belum lunas.',
-  );
-
-  await business.owner.post(`/debts/${debt.body.id}/payments`, {
-    amount: 1000,
-    account_id: business.kas.id,
-    paid_on: '2026-10-02',
-  });
-  assert.equal(
-    (await business.owner.put(`/contacts/${contact.id}`, { is_archived: true })).status,
-    200,
-  );
-});
-
-test('AC-013 / BR-007: partial payment, overpayment refusal, then paid; voiding restores', async () => {
-  const business = await newBusiness();
-  const contact = await addContact(business);
-  const { body: debt } = await business.owner.post('/debts', {
-    type: 'receivable',
-    contact_id: contact.id,
+    contactId,
     amount: 1_000_000,
-    issue_date: '2026-10-01',
-    due_date: '2030-10-31',
+    issueDate: '2026-10-01',
   });
-  const partial = await business.owner.post(`/debts/${debt.id}/payments`, {
-    amount: 400_000,
-    account_id: business.kas.id,
-    paid_on: '2026-10-02',
-  });
-  assert.equal(partial.status, 201);
-  assert.equal(partial.body.debt.status, 'partial');
-  assert.equal(partial.body.debt.remaining, 600_000);
-
-  const over = await business.owner.post(`/debts/${debt.id}/payments`, {
-    amount: 600_001,
-    account_id: business.kas.id,
-    paid_on: '2026-10-02',
-  });
-  assert.equal(over.status, 422);
-  assert.equal(over.body.error.message, 'Pembayaran melebihi sisa tagihan (Rp600.000).');
-
-  const early = await business.owner.post(`/debts/${debt.id}/payments`, {
-    amount: 1,
-    account_id: business.kas.id,
-    paid_on: '2026-09-30',
-  });
-  assert.equal(early.status, 400);
-
-  const full = await business.owner.post(`/debts/${debt.id}/payments`, {
-    amount: 600_000,
-    account_id: business.kas.id,
-    paid_on: '2026-10-03',
-  });
-  assert.equal(full.body.debt.status, 'paid');
-  const closed = await business.owner.post(`/debts/${debt.id}/payments`, {
-    amount: 1,
-    account_id: business.kas.id,
-    paid_on: '2026-10-03',
-  });
-  assert.equal(closed.status, 409);
-
-  const detail = (await business.owner.get(`/debts/${debt.id}`)).body;
-  const reopened = await business.owner.post(
-    `/debts/${debt.id}/payments/${detail.payments[0].id}/void`,
-  );
-  assert.equal(reopened.status, 200);
-  assert.equal(reopened.body.status, 'partial');
-  assert.equal(reopened.body.remaining, 600_000);
-  assert.equal(await balanceOf(business, 'Kas'), 400_000);
-});
-
-test('BR-007: an unpaid debt past its due date is flagged overdue with its days', async () => {
-  const business = await newBusiness();
-  const contact = await addContact(business);
-  await business.owner.post('/debts', {
-    type: 'receivable',
-    contact_id: contact.id,
-    amount: 1000,
-    issue_date: '2020-01-01',
-    due_date: '2020-01-02',
-  });
-  const { items, remaining } = (await business.owner.get('/debts?status=overdue')).body;
-  assert.equal(items.length, 1);
-  assert.ok(items[0].days_overdue > 365);
-  assert.equal(remaining, 1000);
-});
-
-test('AC-014 / BR-008: debt payments move cash but add nothing to profit and loss', async () => {
-  const business = await newBusiness();
-  const contact = await addContact(business);
-  const receivable = await business.owner.post('/debts', {
-    type: 'receivable',
-    contact_id: contact.id,
-    amount: 1_000_000,
-    issue_date: '2026-10-01',
-    due_date: '2026-10-31',
-  });
-  const payable = await business.owner.post('/debts', {
+  const payable = await insertLegacyDebt(business, {
     type: 'payable',
-    contact_id: contact.id,
+    contactId,
     amount: 300_000,
-    issue_date: '2026-10-01',
-    due_date: '2026-10-31',
-    category_id: business.category('Sewa').id,
+    categoryId: business.category('Sewa').id,
+    issueDate: '2026-10-01',
   });
-  const pay = (id, amount) =>
-    business.owner.post(`/debts/${id}/payments`, {
+  const pay = (debtId, amount) =>
+    insertLegacyDebtPayment(business, {
+      debtId,
       amount,
-      account_id: business.kas.id,
-      paid_on: '2026-10-10',
+      accountId: business.kas.id,
+      paidOn: '2026-10-10',
     });
-  await pay(receivable.body.id, 400_000);
-  await pay(payable.body.id, 300_000);
+  await pay(receivable, 400_000);
+  await pay(payable, 300_000);
   assert.equal(await balanceOf(business, 'Kas'), 100_000);
 
   const range = 'from=2026-10-01&to=2026-10-31';
@@ -455,148 +289,63 @@ test('AC-014 / BR-008: debt payments move cash but add nothing to profit and los
   assert.equal(flow.totals.closing, 100_000);
 });
 
-test('Staff see receivables only and can record a payment without any balance', async () => {
+test('a sale is always paid: credit and contact fields are refused', async () => {
   const business = await newBusiness();
-  const staff = await addUser(business, 'staff');
-  const contact = await addContact(business);
-  const receivable = await business.owner.post('/debts', {
-    type: 'receivable',
-    contact_id: contact.id,
-    amount: 1000,
-    issue_date: '2026-10-01',
-    due_date: '2026-10-31',
-  });
-  const payable = await business.owner.post('/debts', {
-    type: 'payable',
-    contact_id: contact.id,
-    amount: 1000,
-    issue_date: '2026-10-01',
-    due_date: '2026-10-31',
-    category_id: business.category('Sewa').id,
-  });
-  const list = (await staff.client.get('/debts?type=payable')).body;
-  assert.ok(list.items.every((debt) => debt.type === 'receivable'));
-  assert.equal((await staff.client.get(`/debts/${payable.body.id}`)).status, 404);
-  assert.equal(
-    (
-      await staff.client.post(`/debts/${payable.body.id}/payments`, {
-        amount: 1,
-        account_id: business.kas.id,
-        paid_on: '2026-10-02',
-      })
-    ).status,
-    404,
-  );
+  const product = await addProduct(business);
+  const items = [{ product_id: product.id, qty: 1, unit_price: 10_000 }];
+  const base = { items, account_id: business.kas.id };
 
-  const paid = await staff.client.post(`/debts/${receivable.body.id}/payments`, {
-    amount: 500,
-    account_id: business.kas.id,
-    paid_on: '2026-10-02',
-  });
+  const credit = await business.owner.post('/sales', { ...base, payment_type: 'credit' });
+  assert.equal(credit.status, 400);
+  const contactId = await insertLegacyContact(business, { name: 'Bu Sari' });
+  const withContact = await business.owner.post('/sales', { ...base, contact_id: contactId });
+  assert.equal(withContact.status, 400);
+  const noAccount = await business.owner.post('/sales', { items });
+  assert.equal(noAccount.status, 400);
+  assert.equal(noAccount.body.error.fields.account_id, 'Pilih akun penerima.');
+  assert.equal((await business.owner.get('/sales')).body.total, 0);
+
+  const paid = await business.owner.post('/sales', base);
   assert.equal(paid.status, 201);
-  assert.equal(paid.body.account_balance, undefined);
-  assert.equal((await staff.client.get('/contacts')).body.items[0].payable_balance, undefined);
+  assert.equal(paid.body.sale.payment_type, 'paid');
+  assert.equal(paid.body.sale.contact_id, null);
 });
 
-async function businessWithAddress() {
+test('removed commerce routes answer 404', async () => {
+  const { owner } = await newBusiness();
+  for (const url of ['/contacts', '/debts', '/invoices']) {
+    assert.equal((await owner.get(url)).status, 404, url);
+  }
+  const aging = await owner.get('/reports/receivable-aging?from=2026-10-01&to=2026-10-31');
+  assert.notEqual(aging.status, 200);
+});
+
+test('editing an old transaction keeps its contact', async () => {
   const business = await newBusiness();
-  await business.owner.put('/business', {
-    name: 'Toko Uji',
-    address: 'Jl. Uji 1, Bandung',
-    taxpayer_type: 'individual',
-    period_start_day: 1,
-    tax_rate: 0.5,
-    tax_threshold: 500_000_000,
-    payment_info: 'BCA 123',
-  });
-  return business;
-}
-
-const anySale = (business) =>
-  paidSale(business, [{ description: 'Jasa', qty: 1, unit_price: 100_000 }]);
-
-test('AC-015 / BR-006: the first invoice is INV/2026/0001; numbers rise and a void is not reused', async () => {
-  const business = await businessWithAddress();
-  const first = await business.owner.post('/invoices', {
-    sale_id: (await anySale(business)).body.sale.id,
-    issue_date: '2026-03-01',
-  });
-  assert.equal(first.status, 201);
-  assert.equal(first.body.number, 'INV/2026/0001');
-  assert.equal(first.body.status, 'paid', 'a sale paid at sale time is a paid invoice');
-
-  const voided = await business.owner.put(`/invoices/${first.body.id}`, { status: 'void' });
-  assert.equal(voided.body.status, 'void');
-  const second = await business.owner.post('/invoices', {
-    sale_id: (await anySale(business)).body.sale.id,
-    issue_date: '2026-03-02',
-  });
-  assert.equal(second.body.number, 'INV/2026/0002');
-  const nextYear = await business.owner.post('/invoices', {
-    sale_id: (await anySale(business)).body.sale.id,
-    issue_date: '2027-01-02',
-  });
-  assert.equal(nextYear.body.number, 'INV/2027/0001');
-});
-
-test('BR-006: concurrent invoices get consecutive numbers with no gap or repeat', async () => {
-  const business = await businessWithAddress();
-  const sales = [];
-  for (let i = 0; i < 8; i += 1) sales.push((await anySale(business)).body.sale.id);
-  const results = await Promise.all(
-    sales.map((sale_id) => business.owner.post('/invoices', { sale_id, issue_date: '2026-05-01' })),
-  );
-  const numbers = results.map((result) => result.body.number).sort();
-  assert.deepEqual(
-    numbers,
-    Array.from({ length: 8 }, (_, i) => `INV/2026/000${i + 1}`),
-  );
-});
-
-test('invoices: one per sale, address required, status follows the receivable, PDF downloads', async () => {
-  const noAddress = await newBusiness();
-  const refused = await noAddress.owner.post('/invoices', {
-    sale_id: (await anySale(noAddress)).body.sale.id,
-    issue_date: '2026-03-01',
-  });
-  assert.equal(refused.status, 422);
-  assert.equal(
-    refused.body.error.message,
-    'Lengkapi alamat usaha di Pengaturan sebelum membuat faktur.',
-  );
-
-  const business = await businessWithAddress();
-  const contact = await addContact(business);
-  const sale = await business.owner.post('/sales', {
-    items: [{ description: 'Jasa', qty: 1, unit_price: 100_000 }],
-    payment_type: 'credit',
-    contact_id: contact.id,
-    sale_date: '2026-10-01',
-    due_date: '2026-12-31',
-  });
-  const invoice = await business.owner.post('/invoices', {
-    sale_id: sale.body.sale.id,
-    issue_date: '2026-10-01',
-    due_date: '2026-12-31',
-  });
-  assert.equal(invoice.body.status, 'issued');
-  const second = await business.owner.post('/invoices', {
-    sale_id: sale.body.sale.id,
-    issue_date: '2026-10-01',
-  });
-  assert.equal(second.status, 409);
-  assert.equal(second.body.error.message, 'Penjualan ini sudah punya faktur.');
-
-  const pay = await business.owner.post(`/debts/${sale.body.debt_id}/payments`, {
-    amount: 100_000,
+  const contactId = await insertLegacyContact(business, { name: 'Pak Budi' });
+  const created = await business.owner.post('/transactions', {
+    type: 'expense',
+    amount: 5_000,
     account_id: business.kas.id,
-    paid_on: '2026-10-02',
+    category_id: business.category('Sewa').id,
+    occurred_on: '2026-10-01',
   });
-  assert.equal(pay.status, 201);
-  assert.equal((await business.owner.get(`/invoices/${invoice.body.id}`)).body.status, 'paid');
+  const id = created.body.transaction.id;
+  await pool.query('UPDATE transactions SET contact_id = $1 WHERE id = $2', [contactId, id]);
 
-  const pdf = await business.owner.get(`/invoices/${invoice.body.id}/pdf`);
-  assert.equal(pdf.status, 200);
-  assert.equal(pdf.headers.get('content-type'), 'application/pdf');
-  assert.equal(pdf.body.subarray(0, 5).toString(), '%PDF-');
+  const saved = await business.owner.put(`/transactions/${id}`, {
+    amount: 5_000,
+    account_id: business.kas.id,
+    category_id: business.category('Sewa').id,
+    occurred_on: '2026-10-01',
+    contact_id: contactId,
+    note: 'catatan baru',
+    tags: [],
+  });
+  assert.equal(saved.status, 200);
+  const { rows } = await pool.query('SELECT contact_id, note FROM transactions WHERE id = $1', [
+    id,
+  ]);
+  assert.equal(rows[0].contact_id, contactId);
+  assert.equal(rows[0].note, 'catatan baru');
 });

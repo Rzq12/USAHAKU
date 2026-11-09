@@ -11,10 +11,6 @@ export function lineAmount(qty, unitPrice) {
 }
 
 /** Basis points of an amount, rounded down to whole rupiah. */
-export function basisPointsOf(amount, basisPoints) {
-  return Number((BigInt(amount) * BigInt(basisPoints)) / 10_000n);
-}
-
 export function formatRupiah(amount) {
   const sign = amount < 0 ? '-' : '';
   const digits = String(Math.abs(amount)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');

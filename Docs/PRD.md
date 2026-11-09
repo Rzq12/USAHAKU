@@ -1,5 +1,7 @@
 # PRODUCT REQUIREMENTS DOCUMENT (PRD)
 
+> **Catatan:** Versi sederhana berbeda dari dokumen ini. Lihat `Docs/superpowers/specs/2026-11-04-usahaku-sederhana-design.md`.
+
 **Product Name:** usahaku (bookkeeping and finance app for UMKM)  
 **Document Version:** 1.0  
 **Status:** Draft  

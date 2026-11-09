@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, query } from '../lib/api.js';
-import { usePermissions } from '../lib/auth.jsx';
 import { notifyChanged, useFetch, useSubmit } from '../lib/hooks.js';
 import { ACCOUNT_TYPES, rupiah } from '../lib/format.js';
 import { Page } from '../components/Layout.jsx';
@@ -101,7 +100,6 @@ function AccountDrawer({ open, onClose, account, onDelete, onArchive }) {
 
 export default function Accounts() {
   const toast = useToast();
-  const { isOwner, isStaff } = usePermissions();
   const [showArchived, setShowArchived] = useState(false);
   const state = useFetch(`/accounts${query({ include_archived: showArchived ? 'true' : '' })}`);
   const [drawer, setDrawer] = useState({ open: false, account: null });
@@ -117,33 +115,25 @@ export default function Accounts() {
     <Page narrow>
       <PageHeader
         title="Akun Kas dan Bank"
-        description={
-          isStaff
-            ? 'Daftar akun yang bisa dipilih saat mencatat.'
-            : 'Saldo dihitung dari saldo awal dan semua transaksi.'
-        }
+        description="Saldo dihitung dari saldo awal dan semua transaksi."
         actions={
-          isOwner && (
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => setDrawer({ open: true, account: null })}
-            >
-              Tambah akun
-            </button>
-          )
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => setDrawer({ open: true, account: null })}
+          >
+            Tambah akun
+          </button>
         }
       />
-      {isOwner && (
-        <button
-          type="button"
-          className="pill-tab mb-4"
-          aria-pressed={showArchived}
-          onClick={() => setShowArchived(!showArchived)}
-        >
-          Tampilkan arsip
-        </button>
-      )}
+      <button
+        type="button"
+        className="pill-tab mb-4"
+        aria-pressed={showArchived}
+        onClick={() => setShowArchived(!showArchived)}
+      >
+        Tampilkan arsip
+      </button>
       <Loaded state={state}>
         {(data) =>
           data.items.length === 0 ? (
@@ -153,12 +143,10 @@ export default function Accounts() {
             />
           ) : (
             <>
-              {!isStaff && (
-                <div className="mb-4 rounded-lg bg-tint-lavender px-5 py-4">
-                  <p className="text-body-sm text-charcoal">Total saldo aktif</p>
-                  <p className="num text-h3">{rupiah(data.total_balance)}</p>
-                </div>
-              )}
+              <div className="mb-4 rounded-lg bg-tint-lavender px-5 py-4">
+                <p className="text-body-sm text-charcoal">Total saldo aktif</p>
+                <p className="num text-h3">{rupiah(data.total_balance)}</p>
+              </div>
               <RowList>
                 {data.items.map((account) => (
                   <Row
@@ -166,8 +154,8 @@ export default function Accounts() {
                     title={account.name}
                     subtitle={ACCOUNT_TYPES[account.type]}
                     badge={account.is_archived ? <Badge>Arsip</Badge> : undefined}
-                    right={isStaff ? undefined : rupiah(account.balance)}
-                    onClick={isOwner ? () => setDrawer({ open: true, account }) : undefined}
+                    right={rupiah(account.balance)}
+                    onClick={() => setDrawer({ open: true, account })}
                   />
                 ))}
               </RowList>
@@ -175,22 +163,20 @@ export default function Accounts() {
           )
         }
       </Loaded>
-      {isOwner && (
-        <AccountDrawer
-          open={drawer.open}
-          account={drawer.account}
-          onClose={() => setDrawer({ open: false, account: null })}
-          onDelete={() => {
-            setConfirming({ kind: 'delete', account: drawer.account });
-            setDrawer({ open: false, account: null });
-          }}
-          onArchive={() => {
-            if (drawer.account.is_archived) toggleArchive(drawer.account);
-            else setConfirming({ kind: 'archive', account: drawer.account });
-            setDrawer({ open: false, account: null });
-          }}
-        />
-      )}
+      <AccountDrawer
+        open={drawer.open}
+        account={drawer.account}
+        onClose={() => setDrawer({ open: false, account: null })}
+        onDelete={() => {
+          setConfirming({ kind: 'delete', account: drawer.account });
+          setDrawer({ open: false, account: null });
+        }}
+        onArchive={() => {
+          if (drawer.account.is_archived) toggleArchive(drawer.account);
+          else setConfirming({ kind: 'archive', account: drawer.account });
+          setDrawer({ open: false, account: null });
+        }}
+      />
       <ConfirmDialog
         open={Boolean(confirming)}
         onClose={() => setConfirming(null)}

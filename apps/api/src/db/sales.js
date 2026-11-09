@@ -88,11 +88,8 @@ export async function listSales(q, businessId, filters) {
     params.push(value);
     where.push(sql.replace('?', `$${params.length}`));
   };
-  if (filters.created_by) add('s.created_by = ?', filters.created_by);
   if (filters.from) add('s.sale_date >= ?', filters.from);
   if (filters.to) add('s.sale_date <= ?', filters.to);
-  if (filters.contact_id) add('s.contact_id = ?', filters.contact_id);
-  if (filters.payment_status) add(`${PAYMENT_STATUS_SQL} = ?`, filters.payment_status);
   const clause = where.join(' AND ');
   const count = await q.query(`SELECT count(*) FROM sales s WHERE ${clause}`, params);
   const { rows } = await q.query(

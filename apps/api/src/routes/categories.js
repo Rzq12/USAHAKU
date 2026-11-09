@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { handle } from '../lib/http.js';
 import { parse, queryBoolean, uuid } from '../lib/schemas.js';
-import { ACCOUNTANT, OWNER, STAFF, requireRole } from '../middleware/auth.js';
 import * as categories from '../services/categories.js';
 
 export const categoriesRouter = Router();
@@ -37,14 +36,12 @@ categoriesRouter.get(
 );
 categoriesRouter.post(
   '/',
-  requireRole(OWNER),
   handle(async (req, res) =>
     res.status(201).json(await categories.createCategory(req.user, parse(createSchema, req.body))),
   ),
 );
 categoriesRouter.put(
   '/:id',
-  requireRole(OWNER),
   handle(async (req, res) =>
     res.json(
       await categories.updateCategory(
@@ -57,7 +54,6 @@ categoriesRouter.put(
 );
 categoriesRouter.delete(
   '/:id',
-  requireRole(OWNER),
   handle(async (req, res) => {
     await categories.deleteCategory(req.user, parse(uuid, req.params.id));
     res.status(204).end();
@@ -76,26 +72,22 @@ const testSchema = z.object({
 
 rulesRouter.get(
   '/',
-  requireRole(OWNER, ACCOUNTANT),
   handle(async (req, res) => res.json(await categories.listRules(req.user))),
 );
 rulesRouter.post(
   '/test',
-  requireRole(OWNER, STAFF),
   handle(async (req, res) =>
     res.json(await categories.testRule(req.user, parse(testSchema, req.body))),
   ),
 );
 rulesRouter.post(
   '/',
-  requireRole(OWNER),
   handle(async (req, res) =>
     res.status(201).json(await categories.createRule(req.user, parse(ruleSchema, req.body))),
   ),
 );
 rulesRouter.put(
   '/:id',
-  requireRole(OWNER),
   handle(async (req, res) =>
     res.json(
       await categories.updateRule(
@@ -108,7 +100,6 @@ rulesRouter.put(
 );
 rulesRouter.delete(
   '/:id',
-  requireRole(OWNER),
   handle(async (req, res) => {
     await categories.deleteRule(req.user, parse(uuid, req.params.id));
     res.status(204).end();
