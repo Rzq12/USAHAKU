@@ -4,7 +4,7 @@ Instructions for Claude Code in this repository. This file is read automatically
 
 ## About the Project
 
-usahaku is a bookkeeping and finance web app for Indonesian UMKM. It records sales, expenses, stock, receivables, and payables, and produces profit and tax estimate reports for three roles: Owner, Staff, and Accountant.
+usahaku is a bookkeeping and finance web app for Indonesian UMKM. It records sales, expenses, and stock, and produces profit and cash flow reports. There is one role, the Owner, and the users are older shop owners, so the interface stays large and simple. See @Docs/superpowers/specs/2026-11-04-usahaku-sederhana-design.md.
 
 - Stack: React 18, Vite, Tailwind CSS, Node.js 20, Express, Zod, PostgreSQL 16, Docker Compose
 - UI language: Indonesian (code, API fields, and docs in English)
@@ -25,9 +25,9 @@ npm run build      # Production build
 
 - `apps/web/` : React pages, components, and API client
 - `apps/api/src/routes/` : thin Express handlers, one file per module
-- `apps/api/src/services/` : business rules (sales, debts, reports, tax)
+- `apps/api/src/services/` : business rules (sales, transactions, reports)
 - `apps/api/src/db/` : parameterized SQL and the connection pool
-- `apps/api/src/jobs/` : daily scheduler for recurring transactions
+- `apps/api/src/jobs/` : daily cleanup of expired sessions and old audit logs
 - `db/migrations/` : versioned SQL files
 
 Main data flow: page, API client, route, service, SQL, PostgreSQL.
@@ -59,8 +59,7 @@ Main data flow: page, API client, route, service, SQL, PostgreSQL.
 
 ## Notes
 
-- Profit and loss counts revenue from `sales`, not from income transactions. Transfers and debt payments are never income or expense (BR-002, BR-008).
-- Staff API responses must not include cost price, margin, profit, or balances (BR-011).
-- Tax rate and threshold come from business settings. Do not hard code them.
+- Profit and loss counts revenue from `sales`, not from income transactions. Transfers and old debt payments are never income or expense (BR-002, BR-008).
+- Old contacts, debts, payments, and invoices stay in the database. Reports, sale voiding, and data export still read them. New sales are always paid.
 - The scheduler runs in the API process, so deploy a single API instance.
 - Stock changes only through stock movements. Never update `stock_qty` without writing a movement.

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { pool } from '../db/pool.js';
 import { extendSession, findSessionUser } from '../db/users.js';
 import { config } from '../config.js';
-import { AppError, forbidden, unauthorized } from '../lib/errors.js';
+import { unauthorized } from '../lib/errors.js';
 import { handle } from '../lib/http.js';
 
 export const SESSION_COOKIE = 'usahaku_session';
@@ -28,19 +28,5 @@ export const requireAuth = handle(async (req, _res, next) => {
   }
   req.user = user;
 
-  const onAuthRoute = req.originalUrl.startsWith('/api/auth/');
-  if (user.must_change_password && !onAuthRoute) {
-    throw new AppError(403, 'PASSWORD_CHANGE_REQUIRED', 'Ganti kata sandi terlebih dahulu.');
-  }
   next();
 });
-
-export const requireRole = (...roles) =>
-  function checkRole(req, _res, next) {
-    if (!roles.includes(req.user.role)) return next(forbidden());
-    next();
-  };
-
-export const OWNER = 'owner';
-export const STAFF = 'staff';
-export const ACCOUNTANT = 'accountant';

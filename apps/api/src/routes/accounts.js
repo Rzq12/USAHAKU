@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { handle } from '../lib/http.js';
 import { MAX_AMOUNT, parse, queryBoolean, uuid } from '../lib/schemas.js';
-import { OWNER, requireRole } from '../middleware/auth.js';
 import * as accounts from '../services/accounts.js';
 
 export const accountsRouter = Router();
@@ -28,14 +27,12 @@ accountsRouter.get(
 );
 accountsRouter.post(
   '/',
-  requireRole(OWNER),
   handle(async (req, res) =>
     res.status(201).json(await accounts.createAccount(req.user, parse(accountSchema, req.body))),
   ),
 );
 accountsRouter.put(
   '/:id',
-  requireRole(OWNER),
   handle(async (req, res) =>
     res.json(
       await accounts.updateAccount(
@@ -48,7 +45,6 @@ accountsRouter.put(
 );
 accountsRouter.post(
   '/:id/archive',
-  requireRole(OWNER),
   handle(async (req, res) => {
     const { is_archived } = parse(archiveSchema, req.body ?? {});
     res.json(await accounts.archiveAccount(req.user, parse(uuid, req.params.id), is_archived));
@@ -56,7 +52,6 @@ accountsRouter.post(
 );
 accountsRouter.delete(
   '/:id',
-  requireRole(OWNER),
   handle(async (req, res) => {
     await accounts.deleteAccount(req.user, parse(uuid, req.params.id));
     res.status(204).end();

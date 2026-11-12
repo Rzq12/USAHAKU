@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { query } from '../lib/api.js';
-import { usePermissions } from '../lib/auth.jsx';
 import { useFetch } from '../lib/hooks.js';
 import { formatDate, rupiah } from '../lib/format.js';
 import { Page } from '../components/Layout.jsx';
@@ -10,24 +9,14 @@ import {
   Loaded,
   PageHeader,
   Pagination,
-  PillTabs,
   Row,
   RowList,
   TextField,
 } from '../components/ui.jsx';
 import { PaymentBadge } from './saleParts.jsx';
 
-const STATUS_FILTERS = [
-  { value: '', label: 'Semua' },
-  { value: 'paid', label: 'Lunas' },
-  { value: 'open', label: 'Belum dibayar' },
-  { value: 'partial', label: 'Sebagian' },
-  { value: 'void', label: 'Dibatalkan' },
-];
-
 export default function Sales() {
-  const { canRecord, isStaff } = usePermissions();
-  const [filters, setFilters] = useState({ payment_status: '', from: '', to: '' });
+  const [filters, setFilters] = useState({ from: '', to: '' });
   const [page, setPage] = useState(1);
   const state = useFetch(`/sales${query({ ...filters, page })}`);
   const set = (key, value) => {
@@ -39,25 +28,15 @@ export default function Sales() {
   return (
     <Page>
       <PageHeader
-        title="Penjualan"
-        description={
-          isStaff ? 'Penjualan yang Anda catat.' : 'Semua penjualan, lunas maupun kredit.'
-        }
+        title="Riwayat Penjualan"
+        description="Semua penjualan."
         actions={
-          canRecord && (
-            <Link to="/penjualan/baru" className="btn-primary">
-              Catat penjualan
-            </Link>
-          )
+          <Link to="/penjualan/baru" className="btn-primary">
+            Catat penjualan
+          </Link>
         }
       />
       <div className="space-y-3">
-        <PillTabs
-          label="Status pembayaran"
-          options={STATUS_FILTERS}
-          value={filters.payment_status}
-          onChange={(value) => set('payment_status', value)}
-        />
         <div className="grid grid-cols-2 gap-3 sm:max-w-md">
           <TextField
             label="Dari tanggal"
@@ -85,7 +64,7 @@ export default function Sales() {
                     : 'Penjualan pertama Anda hanya perlu beberapa ketukan.'
                 }
                 action={
-                  !hasFilter && canRecord ? (
+                  !hasFilter ? (
                     <Link to="/penjualan/baru" className="btn-primary">
                       Catat penjualan pertama
                     </Link>
@@ -101,7 +80,7 @@ export default function Sales() {
                       LinkComponent={Link}
                       href={`/penjualan/${sale.id}`}
                       title={sale.contact_name ?? 'Pelanggan umum'}
-                      subtitle={`${formatDate(sale.sale_date)}${sale.invoice_number ? ` · ${sale.invoice_number}` : ''}`}
+                      subtitle={formatDate(sale.sale_date)}
                       badge={<PaymentBadge status={sale.payment_status} />}
                       right={rupiah(sale.total)}
                     />

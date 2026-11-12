@@ -4,33 +4,11 @@ import * as debts from '../db/debts.js';
 import { lockProducts, listSaleMovements, writeStockMovement } from '../db/products.js';
 import { insertTransaction, softDeleteBySource } from '../db/transactions.js';
 import { getSystemCategory } from '../db/categories.js';
-import { getContact } from '../db/contacts.js';
 import { setInvoiceStatusBySale } from '../db/invoices.js';
 import { writeAudit } from '../db/audit.js';
 import { conflict, fieldError, notFound, unprocessable } from '../lib/errors.js';
 import { formatQty, lineAmount } from '../lib/money.js';
 import { requireActiveAccount } from './accounts.js';
-
-const STAFF_ROLE = 'staff';
-
-function assertPaymentFields(body) {
-  if (body.payment_type === 'paid') {
-    if (!body.account_id) throw fieldError('account_id', 'Pilih akun penerima.');
-    return;
-  }
-  if (!body.contact_id) throw fieldError('contact_id', 'Pilih pelanggan untuk penjualan kredit.');
-  if (!body.due_date) throw fieldError('due_date', 'Isi tanggal jatuh tempo.');
-  if (body.due_date < body.sale_date) {
-    throw fieldError('due_date', 'Jatuh tempo tidak boleh sebelum tanggal penjualan.');
-  }
-}
-
-async function requireCustomer(client, businessId, contactId) {
-  const contact = await getContact(client, businessId, contactId);
-  if (!contact || contact.is_archived || contact.type === 'supplier') {
-    throw fieldError('contact_id', 'Pilih pelanggan yang masih aktif.');
-  }
-}
 
 /** Prices each line, reduces stock for tracked products, and returns what to store. */
 async function buildLines(client, actor, body) {
@@ -86,11 +64,11 @@ function lowStockWarnings(lines) {
 
 async function storeSale(client, actor, body, lines, totals) {
   const saleId = await sales.insertSale(client, actor.business_id, {
-    contact_id: body.contact_id,
+    contact_id: null,
     sale_date: body.sale_date,
     ...totals,
-    payment_type: body.payment_type,
-    account_id: body.payment_type === 'paid' ? body.account_id : null,
+    payment_type: 'paid',
+    account_id: body.account_id,
     created_by: actor.id,
   });
   for (const line of lines) {
@@ -113,19 +91,6 @@ async function storeSale(client, actor, body, lines, totals) {
 }
 
 async function recordSettlement(client, actor, body, saleId, total) {
-  if (body.payment_type === 'credit') {
-    const debtId = await debts.insertDebt(client, actor.business_id, {
-      type: 'receivable',
-      contact_id: body.contact_id,
-      source_type: 'sale',
-      source_id: saleId,
-      issue_date: body.sale_date,
-      due_date: body.due_date,
-      amount: total,
-      created_by: actor.id,
-    });
-    return { debt_id: debtId };
-  }
   if (total === 0) return {};
   const category = await getSystemCategory(client, actor.business_id, 'sales');
   const transactionId = await insertTransaction(client, {
@@ -134,7 +99,6 @@ async function recordSettlement(client, actor, body, saleId, total) {
     type: 'income',
     amount: total,
     category_id: category.id,
-    contact_id: body.contact_id,
     occurred_on: body.sale_date,
     source_type: 'sale',
     source_id: saleId,
@@ -144,20 +108,14 @@ async function recordSettlement(client, actor, body, saleId, total) {
 }
 
 export async function createSale(actor, body) {
-  assertPaymentFields(body);
+  if (!body.account_id) throw fieldError('account_id', 'Pilih akun penerima.');
   return withTx(async (client) => {
-    if (body.payment_type === 'paid') {
-      await requireActiveAccount(client, actor.business_id, body.account_id);
-    }
-    if (body.contact_id) await requireCustomer(client, actor.business_id, body.contact_id);
+    await requireActiveAccount(client, actor.business_id, body.account_id);
 
     const lines = await buildLines(client, actor, body);
     const subtotal = lines.reduce((sum, line) => sum + line.line_total, 0);
     if (body.discount > subtotal) throw fieldError('discount', 'Diskon melebihi subtotal.');
     const total = subtotal - body.discount;
-    if (body.payment_type === 'credit' && total === 0) {
-      throw fieldError('payment_type', 'Penjualan kredit harus punya total lebih dari 0.');
-    }
 
     const saleId = await storeSale(client, actor, body, lines, {
       subtotal,
@@ -171,36 +129,27 @@ export async function createSale(actor, body) {
       action: 'create',
       entityType: 'sale',
       entityId: saleId,
-      detail: { total, payment_type: body.payment_type, lines: lines.length },
+      detail: { total, payment_type: 'paid', lines: lines.length },
     });
     const sale = await loadSale(client, actor, saleId);
     return { sale, ...settlement, stock_warnings: lowStockWarnings(lines) };
   });
 }
 
-function itemForRole(item, role) {
-  if (role !== STAFF_ROLE) return item;
-  const visible = { ...item };
-  delete visible.unit_cost;
-  delete visible.line_cost;
-  return visible;
-}
-
 async function loadSale(q, actor, saleId) {
   const sale = await sales.getSale(q, actor.business_id, saleId);
-  if (!sale || (actor.role === STAFF_ROLE && sale.created_by !== actor.id)) {
+  if (!sale) {
     throw notFound('Penjualan tidak ditemukan.');
   }
   const items = await sales.listSaleItems(q, actor.business_id, saleId);
   const debtId = await debts.findDebtBySale(q, actor.business_id, saleId);
-  return { ...sale, debt_id: debtId ?? null, items: items.map((i) => itemForRole(i, actor.role)) };
+  return { ...sale, debt_id: debtId ?? null, items };
 }
 
 export const getSale = (actor, saleId) => loadSale(pool, actor, saleId);
 
 export async function listSales(actor, filters) {
-  const scoped = actor.role === STAFF_ROLE ? { ...filters, created_by: actor.id } : filters;
-  return sales.listSales(pool, actor.business_id, scoped);
+  return sales.listSales(pool, actor.business_id, filters);
 }
 
 async function voidReceivable(client, businessId, saleId) {

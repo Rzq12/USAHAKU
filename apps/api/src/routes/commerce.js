@@ -1,9 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { AppError } from '../lib/errors.js';
-import { handle, pageResult, sendFile } from '../lib/http.js';
+import { handle, pageResult } from '../lib/http.js';
 import {
-  amount,
   dateString,
   nonNegativeAmount,
   notFarAhead,
@@ -14,19 +12,12 @@ import {
   queryBoolean,
   uuid,
 } from '../lib/schemas.js';
-import { OWNER, STAFF, ACCOUNTANT, requireRole } from '../middleware/auth.js';
 import { todayJakarta } from '../lib/dates.js';
 import * as products from '../services/products.js';
 import * as sales from '../services/sales.js';
-import * as contacts from '../services/contacts.js';
-import * as debts from '../services/debts.js';
-import * as invoices from '../services/invoices.js';
 
 export const productsRouter = Router();
 export const salesRouter = Router();
-export const contactsRouter = Router();
-export const debtsRouter = Router();
-export const invoicesRouter = Router();
 
 const id = (req) => parse(uuid, req.params.id);
 const nullableUuid = uuid.nullish().transform((value) => value ?? null);
@@ -85,7 +76,6 @@ productsRouter.get(
 );
 productsRouter.post(
   '/',
-  requireRole(OWNER),
   handle(async (req, res) =>
     res
       .status(201)
@@ -98,21 +88,18 @@ productsRouter.get(
 );
 productsRouter.put(
   '/:id',
-  requireRole(OWNER),
   handle(async (req, res) =>
     res.json(await products.updateProduct(req.user, id(req), parse(updateProductSchema, req.body))),
   ),
 );
 productsRouter.post(
   '/:id/stock',
-  requireRole(OWNER),
   handle(async (req, res) =>
     res.json(await products.changeStock(req.user, id(req), parse(stockSchema, req.body))),
   ),
 );
 productsRouter.get(
   '/:id/movements',
-  requireRole(OWNER, ACCOUNTANT),
   handle(async (req, res) => {
     const query = parse(pageQuery, req.query);
     const { items, total } = await products.listMovements(req.user, id(req), query);
@@ -121,31 +108,28 @@ productsRouter.get(
 );
 
 /* Sales */
-const saleSchema = z.object({
-  items: z
-    .array(
-      z.object({
-        product_id: nullableUuid,
-        description: optionalText(120),
-        qty: positiveQty,
-        unit_price: nonNegativeAmount,
-      }),
-    )
-    .min(1)
-    .max(100),
-  discount: nonNegativeAmount.default(0),
-  payment_type: z.enum(['paid', 'credit']),
-  account_id: nullableUuid,
-  contact_id: nullableUuid,
-  due_date: dateString.nullish().transform((value) => value ?? null),
-  sale_date: notFarAhead.default(() => todayJakarta()),
-});
+const saleSchema = z
+  .object({
+    items: z
+      .array(
+        z.object({
+          product_id: nullableUuid,
+          description: optionalText(120),
+          qty: positiveQty,
+          unit_price: nonNegativeAmount,
+        }),
+      )
+      .min(1)
+      .max(100),
+    discount: nonNegativeAmount.default(0),
+    account_id: nullableUuid,
+    sale_date: notFarAhead.default(() => todayJakarta()),
+  })
+  .strict();
 const saleListQuery = z.object({
   ...pagination,
   from: dateString.optional(),
   to: dateString.optional(),
-  contact_id: uuid.optional(),
-  payment_status: z.enum(['paid', 'open', 'partial', 'void']).optional(),
 });
 
 salesRouter.get(
@@ -158,7 +142,6 @@ salesRouter.get(
 );
 salesRouter.post(
   '/',
-  requireRole(OWNER, STAFF),
   handle(async (req, res) =>
     res.status(201).json(await sales.createSale(req.user, parse(saleSchema, req.body))),
   ),
@@ -169,178 +152,5 @@ salesRouter.get(
 );
 salesRouter.post(
   '/:id/void',
-  requireRole(OWNER),
   handle(async (req, res) => res.json(await sales.voidSale(req.user, id(req)))),
-);
-
-/* Contacts */
-const contactFields = {
-  name: z.string().trim().min(1).max(120),
-  type: z.enum(['customer', 'supplier', 'both']),
-  phone: optionalText(30).refine(
-    (value) => value === null || /^[0-9 +-]+$/.test(value),
-    'Hanya angka, spasi, + dan -.',
-  ),
-  email: z
-    .union([z.literal(''), z.string().trim().toLowerCase().email().max(255)])
-    .nullish()
-    .transform((value) => value || null),
-  address: optionalText(500),
-  notes: optionalText(1000),
-};
-const contactSchema = z.object(contactFields);
-const updateContactSchema = z.object({ ...contactFields, is_archived: z.boolean() }).partial();
-const contactListQuery = z.object({
-  ...pagination,
-  q: z.string().max(120).optional(),
-  type: z.enum(['customer', 'supplier']).optional(),
-  include_archived: queryBoolean.default('false'),
-});
-
-contactsRouter.get(
-  '/',
-  handle(async (req, res) => {
-    const query = parse(contactListQuery, req.query);
-    const { items, total } = await contacts.listContacts(req.user, query);
-    res.json(pageResult(items, total, query));
-  }),
-);
-contactsRouter.post(
-  '/',
-  requireRole(OWNER, STAFF),
-  handle(async (req, res) =>
-    res.status(201).json(await contacts.createContact(req.user, parse(contactSchema, req.body))),
-  ),
-);
-contactsRouter.put(
-  '/:id',
-  requireRole(OWNER),
-  handle(async (req, res) =>
-    res.json(await contacts.updateContact(req.user, id(req), parse(updateContactSchema, req.body))),
-  ),
-);
-
-/* Receivables and payables */
-const debtSchema = z
-  .object({
-    type: z.enum(['receivable', 'payable']),
-    contact_id: uuid,
-    amount,
-    issue_date: dateString,
-    due_date: dateString,
-    category_id: nullableUuid,
-    note: optionalText(500),
-  })
-  .refine((body) => body.due_date >= body.issue_date, {
-    path: ['due_date'],
-    message: 'Jatuh tempo tidak boleh sebelum tanggal tagihan.',
-  });
-const paymentSchema = z.object({
-  amount,
-  account_id: uuid,
-  paid_on: notFarAhead,
-});
-const debtListQuery = z.object({
-  ...pagination,
-  type: z.enum(['receivable', 'payable']).optional(),
-  status: z.enum(['open', 'partial', 'paid', 'void', 'overdue', 'unpaid']).optional(),
-  contact_id: uuid.optional(),
-});
-
-debtsRouter.get(
-  '/',
-  handle(async (req, res) => {
-    const query = parse(debtListQuery, req.query);
-    const { items, total, remaining } = await debts.listDebts(req.user, query);
-    res.json(pageResult(items, total, query, { remaining }));
-  }),
-);
-debtsRouter.post(
-  '/',
-  requireRole(OWNER),
-  handle(async (req, res) =>
-    res.status(201).json(await debts.createDebt(req.user, parse(debtSchema, req.body))),
-  ),
-);
-debtsRouter.get(
-  '/:id',
-  handle(async (req, res) => res.json(await debts.getDebt(req.user, id(req)))),
-);
-debtsRouter.post(
-  '/:id/payments',
-  requireRole(OWNER, STAFF),
-  handle(async (req, res) =>
-    res
-      .status(201)
-      .json(await debts.recordPayment(req.user, id(req), parse(paymentSchema, req.body))),
-  ),
-);
-debtsRouter.post(
-  '/:id/payments/:paymentId/void',
-  requireRole(OWNER),
-  handle(async (req, res) =>
-    res.json(await debts.voidPayment(req.user, id(req), parse(uuid, req.params.paymentId))),
-  ),
-);
-
-/* Invoices */
-const invoiceSchema = z.object({
-  sale_id: uuid,
-  issue_date: dateString,
-  due_date: dateString.nullish().transform((value) => value ?? null),
-  notes: optionalText(500),
-});
-const updateInvoiceSchema = z
-  .object({
-    issue_date: dateString,
-    due_date: dateString.nullable(),
-    notes: optionalText(500),
-    status: z.literal('void'),
-  })
-  .partial();
-const invoiceListQuery = z.object({
-  ...pagination,
-  status: z.enum(['draft', 'issued', 'paid', 'void']).optional(),
-});
-
-invoicesRouter.get(
-  '/',
-  handle(async (req, res) => {
-    const query = parse(invoiceListQuery, req.query);
-    const { items, total } = await invoices.listInvoices(req.user, query);
-    res.json(pageResult(items, total, query));
-  }),
-);
-invoicesRouter.post(
-  '/',
-  requireRole(OWNER, STAFF),
-  handle(async (req, res) =>
-    res.status(201).json(await invoices.createInvoice(req.user, parse(invoiceSchema, req.body))),
-  ),
-);
-invoicesRouter.get(
-  '/:id',
-  handle(async (req, res) => res.json(await invoices.getInvoice(req.user, id(req)))),
-);
-invoicesRouter.put(
-  '/:id',
-  requireRole(OWNER),
-  handle(async (req, res) =>
-    res.json(await invoices.updateInvoice(req.user, id(req), parse(updateInvoiceSchema, req.body))),
-  ),
-);
-invoicesRouter.get(
-  '/:id/pdf',
-  handle(async (req, res) => {
-    try {
-      sendFile(res, await invoices.buildInvoicePdf(req.user, id(req)));
-    } catch (error) {
-      if (error instanceof AppError) throw error;
-      throw new AppError(
-        500,
-        'PDF_FAILED',
-        'PDF gagal dibuat. Faktur tetap tersimpan, coba unduh lagi.',
-      );
-    }
-  }),
 );

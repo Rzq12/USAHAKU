@@ -5,6 +5,7 @@
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;
+    scrollbar-gutter: stable;
   }
   body {
     @apply bg-white text-body text-ink antialiased;
@@ -47,10 +48,10 @@
     font-feature-settings: 'tnum';
   }
   .btn {
-    @apply inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-md px-[18px] text-body-sm font-medium transition-colors duration-150 disabled:cursor-not-allowed;
+    @apply inline-flex min-h-[48px] items-center justify-center gap-2 whitespace-nowrap rounded-md px-[18px] text-body-sm font-medium transition-colors duration-150 disabled:cursor-not-allowed;
   }
   .btn-primary {
-    @apply btn bg-primary text-white hover:bg-primary-pressed active:bg-primary-deep disabled:bg-hairline disabled:text-steel;
+    @apply btn min-h-[56px] bg-primary text-white hover:bg-primary-pressed active:bg-primary-deep disabled:bg-hairline disabled:text-steel;
   }
   .btn-secondary {
     @apply btn border border-hairline-strong bg-white text-ink hover:bg-surface active:bg-tint-gray disabled:text-steel;
@@ -80,7 +81,7 @@
     @apply mb-1.5 block text-body-sm font-medium text-charcoal;
   }
   .field-input {
-    @apply block min-h-[44px] w-full rounded-md border border-hairline-strong bg-white px-4 py-2 text-body text-ink outline-none transition-[box-shadow,border-color] duration-150 placeholder:text-steel focus:border-primary focus:shadow-[inset_0_0_0_1px_#5645d4] disabled:bg-surface disabled:text-slate;
+    @apply block min-h-[52px] w-full rounded-md border border-hairline-strong bg-white px-4 py-2 text-body text-ink outline-none transition-[box-shadow,border-color] duration-150 placeholder:text-steel focus:border-primary focus:shadow-[inset_0_0_0_1px_#5645d4] disabled:bg-surface disabled:text-slate;
   }
   .field-input[aria-invalid='true'] {
     @apply border-danger focus:shadow-[inset_0_0_0_1px_#e03131];

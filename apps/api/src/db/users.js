@@ -24,31 +24,6 @@ export async function findUserWithHash(q, userId) {
   return rows[0];
 }
 
-export async function findUser(q, businessId, userId) {
-  const { rows } = await q.query(
-    `SELECT ${PUBLIC_COLUMNS} FROM users WHERE business_id = $1 AND id = $2`,
-    [businessId, userId],
-  );
-  return rows[0];
-}
-
-export async function listUsers(q, businessId) {
-  const { rows } = await q.query(
-    `SELECT ${PUBLIC_COLUMNS} FROM users WHERE business_id = $1 ORDER BY role = 'owner' DESC, name`,
-    [businessId],
-  );
-  return rows;
-}
-
-export async function updateUserFields(q, businessId, userId, fields) {
-  const { rows } = await q.query(
-    `UPDATE users SET name = $3, role = $4, is_active = $5, updated_at = now()
-     WHERE business_id = $1 AND id = $2 RETURNING ${PUBLIC_COLUMNS}`,
-    [businessId, userId, fields.name, fields.role, fields.is_active],
-  );
-  return rows[0];
-}
-
 export async function setPassword(q, userId, passwordHash, mustChange) {
   await q.query(
     `UPDATE users SET password_hash = $2, must_change_password = $3, updated_at = now()
@@ -71,14 +46,6 @@ export async function recordLoginFailure(q, userId, count, lockedUntil) {
     count,
     lockedUntil,
   ]);
-}
-
-export async function countActiveOwners(q, businessId) {
-  const { rows } = await q.query(
-    `SELECT count(*) FROM users WHERE business_id = $1 AND role = 'owner' AND is_active`,
-    [businessId],
-  );
-  return Number(rows[0].count);
 }
 
 export async function insertSession(q, userId, tokenHash, expiresAt) {
@@ -108,10 +75,6 @@ export async function extendSession(q, sessionId, expiresAt) {
 
 export async function deleteSessionByHash(q, tokenHash) {
   await q.query('DELETE FROM sessions WHERE token_hash = $1', [tokenHash]);
-}
-
-export async function deleteUserSessions(q, userId) {
-  await q.query('DELETE FROM sessions WHERE user_id = $1', [userId]);
 }
 
 export async function deleteOtherSessions(q, userId, keepSessionId) {

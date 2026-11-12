@@ -9,19 +9,8 @@ const NAME_TAKEN = {
 const HAS_TRANSACTIONS = 'Akun sudah punya transaksi. Arsipkan saja.';
 
 /** BR-011: Staff never receive balances. */
-function forRole(account, role) {
-  if (role !== 'staff') return account;
-  return {
-    id: account.id,
-    name: account.name,
-    type: account.type,
-    is_archived: account.is_archived,
-  };
-}
-
 export async function listAccounts(actor, includeArchived) {
   const items = await accounts.listAccounts(pool, actor.business_id, includeArchived);
-  if (actor.role === 'staff') return { items: items.map((a) => forRole(a, actor.role)) };
   const totalBalance = items
     .filter((account) => !account.is_archived)
     .reduce((sum, account) => sum + account.balance, 0);

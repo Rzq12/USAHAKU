@@ -5,8 +5,8 @@ import { useAuth } from '../lib/auth.jsx';
 import { useSubmit } from '../lib/hooks.js';
 import { FormError, TextField } from '../components/ui.jsx';
 
-export function ChangePassword({ forced = false }) {
-  const { refresh, logout } = useAuth();
+export function ChangePassword() {
+  const { refresh } = useAuth();
   const [form, setForm] = useState({ current_password: '', new_password: '' });
   const set = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
   const action = useCallback(() => api.post('/auth/change-password', form), [form]);
@@ -18,12 +18,8 @@ export function ChangePassword({ forced = false }) {
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-4 py-10">
       <p className="text-h5 tracking-[-0.02em]">usahaku</p>
-      <h1 className="mt-6 text-h3">{forced ? 'Buat kata sandi baru' : 'Ganti kata sandi'}</h1>
-      <p className="mt-1 text-body-sm text-slate">
-        {forced
-          ? 'Anda masuk dengan kata sandi sementara. Buat kata sandi sendiri untuk melanjutkan.'
-          : 'Sesi Anda di perangkat lain akan berakhir.'}
-      </p>
+      <h1 className="mt-6 text-h3">Ganti kata sandi</h1>
+      <p className="mt-1 text-body-sm text-slate">Sesi Anda di perangkat lain akan berakhir.</p>
       <form
         className="mt-6 space-y-4"
         onSubmit={(event) => {
@@ -32,7 +28,7 @@ export function ChangePassword({ forced = false }) {
         }}
       >
         <TextField
-          label={forced ? 'Kata sandi sementara' : 'Kata sandi saat ini'}
+          label="Kata sandi saat ini"
           type="password"
           required
           autoComplete="current-password"
@@ -55,15 +51,9 @@ export function ChangePassword({ forced = false }) {
           {pending ? 'Menyimpan...' : 'Simpan kata sandi'}
         </button>
       </form>
-      {forced ? (
-        <button type="button" className="btn-ghost mt-3" onClick={logout}>
-          Keluar
-        </button>
-      ) : (
-        <Link to="/" className="btn-ghost mt-3">
-          Kembali ke beranda
-        </Link>
-      )}
+      <Link to="/" className="btn-ghost mt-3">
+        Kembali ke Beranda
+      </Link>
     </div>
   );
 }

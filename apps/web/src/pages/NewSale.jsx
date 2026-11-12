@@ -1,19 +1,23 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, query } from '../lib/api.js';
+import {
+  defaultAccountId,
+  lineError,
+  pickerHint,
+  saleSaveHint,
+  saveProblem,
+} from '../lib/simpleForm.js';
 import { notifyChanged, useDebounced, useFetch, useSubmit } from '../lib/hooks.js';
 import { formatQty, rupiah, todayJakarta } from '../lib/format.js';
 import { Page } from '../components/Layout.jsx';
-import { Drawer } from '../components/Drawer.jsx';
 import { Icon } from '../components/Icon.jsx';
-import { useToast } from '../components/Toast.jsx';
 import {
   AccountOptions,
   Badge,
   FormError,
   MoneyField,
   PageHeader,
-  PillTabs,
   SearchInput,
   SelectField,
   TextField,
@@ -48,6 +52,7 @@ function ProductPicker({ onPick }) {
   const q = useDebounced(search, 200);
   const state = useFetch(`/products${query({ q, limit: 8 })}`);
   const products = state.data?.items ?? [];
+  const hint = state.data ? pickerHint(products.length, state.data.total) : null;
   return (
     <section aria-labelledby="picker-heading">
       <h2 id="picker-heading" className="mb-2 text-h5">
@@ -56,14 +61,14 @@ function ProductPicker({ onPick }) {
       <SearchInput
         value={search}
         onChange={setSearch}
-        placeholder="Cari nama atau SKU"
-        label="Cari produk"
+        placeholder="Cari nama barang"
+        label="Cari barang"
       />
-      <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
+      <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-3">
         {state.error && <FormError message={state.error.message} />}
         {!state.data &&
           !state.error &&
-          [0, 1, 2, 3].map((index) => <div key={index} className="skeleton h-[68px] rounded-md" />)}
+          [0, 1, 2, 3].map((index) => <div key={index} className="skeleton h-[88px] rounded-md" />)}
         {products.map((product) => {
           const empty = product.track_stock && product.stock_qty <= 0;
           return (
@@ -72,9 +77,9 @@ function ProductPicker({ onPick }) {
               type="button"
               disabled={empty}
               onClick={() => onPick(product)}
-              className="min-h-[68px] rounded-md border border-hairline bg-white px-3 py-2 text-left transition-colors duration-150 hover:border-primary hover:bg-tint-lavender disabled:cursor-not-allowed disabled:bg-surface disabled:text-slate"
+              className="min-h-[88px] rounded-md border border-hairline bg-white px-3 py-2 text-left transition-colors duration-150 hover:border-primary hover:bg-tint-lavender disabled:cursor-not-allowed disabled:bg-surface disabled:text-slate"
             >
-              <span className="block break-words text-body-sm font-medium">{product.name}</span>
+              <span className="block break-words text-body font-medium">{product.name}</span>
               <span className="num block text-caption text-slate">
                 {rupiah(product.sell_price)}
                 {product.track_stock && ` · stok ${formatQty(product.stock_qty)}`}
@@ -83,9 +88,10 @@ function ProductPicker({ onPick }) {
           );
         })}
       </div>
+      {hint && <p className="mt-2 text-body-sm text-slate">{hint}</p>}
       {state.data && products.length === 0 && (
         <p className="mt-3 rounded-md bg-surface px-4 py-3 text-body-sm text-slate">
-          {q ? 'Produk tidak ditemukan.' : 'Belum ada produk.'} Pakai baris bebas di bawah, atau{' '}
+          {q ? 'Barang tidak ditemukan.' : 'Belum ada barang.'} Pakai tombol di bawah, atau{' '}
           <Link to="/produk" className="link">
             buka daftar produk
           </Link>
@@ -98,6 +104,7 @@ function ProductPicker({ onPick }) {
 
 function LineEditor({ line, index, errors, onChange, onRemove }) {
   const overStock = line.stock !== null && parseQty(line.qty) > line.stock;
+  const problem = lineError(errors, index);
   return (
     <li className="py-3">
       <div className="flex items-start justify-between gap-3">
@@ -163,6 +170,7 @@ function LineEditor({ line, index, errors, onChange, onRemove }) {
           error={errors[`items.${index}.unit_price`]}
         />
       </div>
+      {problem && <p className="mt-1 text-caption text-danger-deep">{problem}</p>}
       <div className="mt-2 flex items-center justify-between gap-3 text-body-sm">
         {overStock ? (
           <Badge tone="red">
@@ -177,72 +185,18 @@ function LineEditor({ line, index, errors, onChange, onRemove }) {
   );
 }
 
-function NewCustomerDrawer({ open, onClose, onCreated }) {
-  const [form, setForm] = useState({ name: '', phone: '' });
-  const action = useCallback(() => api.post('/contacts', { ...form, type: 'customer' }), [form]);
-  const { submit, pending, fieldErrors, formError } = useSubmit(action, {
-    success: 'Kontak disimpan.',
-    onDone: (contact) => {
-      setForm({ name: '', phone: '' });
-      onCreated(contact);
-    },
-  });
-  return (
-    <Drawer
-      open={open}
-      onClose={onClose}
-      title="Tambah pelanggan"
-      footer={
-        <button type="button" className="btn-primary" disabled={pending} onClick={() => submit()}>
-          {pending ? 'Menyimpan...' : 'Simpan pelanggan'}
-        </button>
-      }
-    >
-      <div className="space-y-4">
-        <TextField
-          label="Nama"
-          autoFocus
-          value={form.name}
-          onChange={(e) => setForm({ ...form, name: e.target.value })}
-          error={fieldErrors.name}
-        />
-        <TextField
-          label="Telepon"
-          inputMode="tel"
-          value={form.phone}
-          onChange={(e) => setForm({ ...form, phone: e.target.value })}
-          error={fieldErrors.phone}
-        />
-        <FormError message={formError} />
-      </div>
-    </Drawer>
-  );
-}
-
-const PAYMENT_OPTIONS = [
-  { value: 'paid', label: 'Lunas' },
-  { value: 'credit', label: 'Kredit' },
-];
+const OPTION_FIELDS = ['sale_date', 'discount', 'account_id'];
 
 export default function NewSale() {
   const navigate = useNavigate();
-  const toast = useToast();
   const accounts = useAccounts();
-  const contacts = useFetch('/contacts?type=customer&limit=100');
   const [lines, setLines] = useState([]);
   const [discount, setDiscount] = useState(null);
-  const [form, setForm] = useState({
-    payment_type: 'paid',
-    account_id: '',
-    contact_id: '',
-    due_date: '',
-    sale_date: todayJakarta(),
-  });
-  const [customerOpen, setCustomerOpen] = useState(false);
+  const [form, setForm] = useState({ account_id: '', sale_date: todayJakarta() });
 
   const subtotal = useMemo(() => lines.reduce((sum, line) => sum + lineTotal(line), 0), [lines]);
   const total = Math.max(0, subtotal - (discount ?? 0));
-  const selectedAccount = form.account_id || accounts.data?.items[0]?.id || '';
+  const accountId = form.account_id || defaultAccountId(accounts.data);
 
   function addProduct(product) {
     setLines((current) => {
@@ -264,39 +218,46 @@ export default function NewSale() {
           unit_price: line.unit_price ?? 0,
         })),
         discount: discount ?? 0,
-        payment_type: form.payment_type,
-        account_id: form.payment_type === 'paid' ? selectedAccount : null,
-        contact_id: form.contact_id || null,
-        due_date: form.payment_type === 'credit' ? form.due_date || null : null,
+        account_id: accountId,
         sale_date: form.sale_date,
       }),
-    [lines, discount, form, selectedAccount],
+    [lines, discount, form.sale_date, accountId],
   );
 
   const onDone = useCallback(
     (result) => {
       notifyChanged();
-      if (result.stock_warnings.length > 0) toast.show(result.stock_warnings.join(' '), 'warning');
-      else toast.show('Penjualan disimpan.');
-      navigate(`/penjualan/${result.sale.id}`, { replace: true });
+      navigate('/', {
+        replace: true,
+        state: {
+          saved: {
+            message: 'Penjualan tersimpan.',
+            warning: result.stock_warnings.join(' ') || undefined,
+          },
+        },
+      });
     },
-    [navigate, toast],
+    [navigate],
   );
 
   const { submit, pending, fieldErrors, formError } = useSubmit(save, { onDone });
+  const hasOptionError = OPTION_FIELDS.some((field) => fieldErrors[field]);
+  const cannotSave = pending || lines.length === 0 || !accountId;
+  const problem = saveProblem(formError, fieldErrors);
+  const hint = saleSaveHint({ lineCount: lines.length });
 
   return (
     <Page>
       <PageHeader
-        title="Catat penjualan"
+        title="Catat Penjualan"
         actions={
-          <Link to="/penjualan" className="btn-ghost">
+          <Link to="/" className="btn-ghost">
             Batal
           </Link>
         }
       />
       <form
-        className="grid items-start gap-x-10 gap-y-8 pb-24 lg:grid-cols-[1.4fr_1fr] lg:pb-0"
+        className="grid items-start gap-x-10 gap-y-6 pb-44 lg:grid-cols-[1.4fr_1fr] lg:pb-0"
         onSubmit={(event) => {
           event.preventDefault();
           submit();
@@ -333,113 +294,77 @@ export default function NewSale() {
         </div>
 
         <div className="space-y-4 lg:sticky lg:top-24">
-          <h2 className="text-h5">Pembayaran</h2>
-          <PillTabs
-            label="Cara bayar"
-            options={PAYMENT_OPTIONS}
-            value={form.payment_type}
-            onChange={(payment_type) => setForm({ ...form, payment_type })}
-          />
-          {form.payment_type === 'paid' && (
-            <SelectField
-              label="Uang masuk ke akun"
-              value={selectedAccount}
-              onChange={(e) => setForm({ ...form, account_id: e.target.value })}
-              error={fieldErrors.account_id}
-            >
-              <AccountOptions accounts={accounts.data} />
-            </SelectField>
+          {accounts.data && !accountId && (
+            <p className="rounded-md bg-surface px-4 py-3 text-body">
+              Belum ada akun kas. Buat dulu di Menu lain,{' '}
+              <Link to="/akun" className="link">
+                Akun Kas
+              </Link>
+              .
+            </p>
           )}
-          <div>
-            <SelectField
-              label={form.payment_type === 'credit' ? 'Pelanggan' : 'Pelanggan (boleh kosong)'}
-              value={form.contact_id}
-              onChange={(e) => setForm({ ...form, contact_id: e.target.value })}
-              error={fieldErrors.contact_id}
-            >
-              <option value="">Pelanggan umum</option>
-              {contacts.data?.items.map((contact) => (
-                <option key={contact.id} value={contact.id}>
-                  {contact.name}
-                </option>
-              ))}
-            </SelectField>
-            <button
-              type="button"
-              className="link-tap text-body-sm"
-              onClick={() => setCustomerOpen(true)}
-            >
-              Tambah pelanggan baru
-            </button>
-          </div>
-          {form.payment_type === 'credit' && (
-            <TextField
-              label="Jatuh tempo"
-              type="date"
-              min={form.sale_date}
-              value={form.due_date}
-              onChange={(e) => setForm({ ...form, due_date: e.target.value })}
-              error={fieldErrors.due_date}
-            />
-          )}
-          <TextField
-            label="Tanggal penjualan"
-            type="date"
-            value={form.sale_date}
-            onChange={(e) => setForm({ ...form, sale_date: e.target.value })}
-            error={fieldErrors.sale_date}
-          />
-          <MoneyField
-            label="Diskon"
-            value={discount}
-            onChange={setDiscount}
-            error={fieldErrors.discount}
-          />
-          <FormError message={formError} />
-          <dl className="hidden border-t border-hairline pt-3 lg:block">
-            <div className="flex justify-between text-body-sm text-slate">
-              <dt>Subtotal</dt>
-              <dd className="num">{rupiah(subtotal)}</dd>
+          {accounts.error && <FormError message={accounts.error.message} />}
+          <details open={hasOptionError} className="rounded-md border border-hairline">
+            <summary className="flex min-h-[52px] cursor-pointer items-center px-4 text-body font-medium">
+              Pilihan lain
+            </summary>
+            <div className="space-y-4 border-t border-hairline p-4">
+              <TextField
+                label="Tanggal penjualan"
+                type="date"
+                value={form.sale_date}
+                onChange={(e) => setForm({ ...form, sale_date: e.target.value })}
+                error={fieldErrors.sale_date}
+              />
+              <MoneyField
+                label="Diskon"
+                value={discount}
+                onChange={setDiscount}
+                error={fieldErrors.discount}
+              />
+              <SelectField
+                label="Uang masuk ke akun"
+                value={accountId}
+                onChange={(e) => setForm({ ...form, account_id: e.target.value })}
+                error={fieldErrors.account_id}
+              >
+                <AccountOptions accounts={accounts.data} />
+              </SelectField>
             </div>
-            <div className="mt-1 flex items-baseline justify-between">
+          </details>
+          <div className="hidden lg:block">
+            <FormError message={problem} />
+          </div>
+          <dl className="hidden border-t border-hairline pt-3 lg:block">
+            <div className="flex items-baseline justify-between">
               <dt className="font-medium">Total</dt>
               <dd className="num text-h3">{rupiah(total)}</dd>
             </div>
           </dl>
+          {hint && <p className="hidden text-body-sm text-slate lg:block">{hint}</p>}
           <button
             type="submit"
             className="btn-primary hidden w-full lg:inline-flex"
-            disabled={pending || lines.length === 0}
+            disabled={cannotSave}
           >
-            {pending ? 'Menyimpan...' : 'Simpan penjualan'}
+            {pending ? 'Menyimpan...' : 'Simpan'}
           </button>
         </div>
 
         <div className="safe-bottom fixed inset-x-0 bottom-0 z-30 border-t border-hairline bg-white px-4 pt-2 lg:hidden">
+          <FormError message={problem} />
+          {hint && <p className="pb-1 text-body-sm text-slate">{hint}</p>}
           <div className="flex items-center justify-between gap-4 pb-2">
             <div className="min-w-0">
               <p className="text-caption text-slate">Total</p>
               <p className="num truncate text-h4">{rupiah(total)}</p>
             </div>
-            <button
-              type="submit"
-              className="btn-primary min-h-[48px]"
-              disabled={pending || lines.length === 0}
-            >
+            <button type="submit" className="btn-primary" disabled={cannotSave}>
               {pending ? 'Menyimpan...' : 'Simpan'}
             </button>
           </div>
         </div>
       </form>
-      <NewCustomerDrawer
-        open={customerOpen}
-        onClose={() => setCustomerOpen(false)}
-        onCreated={(contact) => {
-          contacts.reload();
-          setForm((current) => ({ ...current, contact_id: contact.id }));
-          setCustomerOpen(false);
-        }}
-      />
     </Page>
   );
 }

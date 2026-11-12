@@ -1,7 +1,15 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import ExcelJS from 'exceljs';
-import { addContact, addUser, newBusiness, paidSale, startApi, stopApi } from './support.js';
+import {
+  insertLegacyContact,
+  insertLegacyDebt,
+  insertLegacyDebtPayment,
+  newBusiness,
+  paidSale,
+  startApi,
+  stopApi,
+} from './support.js';
 
 const { formatAccounting } = await import('../src/lib/money.js');
 const { reportPdf } = await import('../src/lib/pdf.js');
@@ -177,7 +185,7 @@ test('without non-operating cash, only the operating section and no activity lin
   assert.equal(amountOf(sections[0], 'Dari aktivitas operasi'), undefined);
 });
 
-test('capital, loans, and equipment move cash but never reach profit or tax turnover', async () => {
+test('capital, loans, and equipment move cash but never reach profit', async () => {
   const business = await newBusiness();
   await business.owner.put('/business', {
     name: 'Toko Uji',
@@ -199,29 +207,26 @@ test('capital, loans, and equipment move cash but never reach profit or tax turn
   const expenses = (await business.owner.get(`/reports/expense-by-category?${RANGE}`)).body;
   assert.equal(expenses.is_empty, true);
 
-  const tax = (await business.owner.get('/tax/estimate?year=2026')).body;
-  assert.equal(tax.months[9].turnover, 700);
-
   const flow = (await business.owner.get(`/reports/cash-flow?${RANGE}`)).body;
   assert.equal(flow.totals.money_in, 15_000_700);
   assert.equal(flow.totals.money_out, 2_000_000);
 });
 
-test('a payable bill for equipment is not an expense when issued, only cash when paid', async () => {
+test('an old payable bill for equipment is not an expense when issued, only cash when paid', async () => {
   const business = await newBusiness();
-  const contact = await addContact(business, { type: 'supplier' });
-  const debt = await business.owner.post('/debts', {
+  const contactId = await insertLegacyContact(business, { name: 'Toko Alat', type: 'supplier' });
+  const debtId = await insertLegacyDebt(business, {
     type: 'payable',
-    contact_id: contact.id,
+    contactId,
     amount: 800_000,
-    issue_date: '2026-10-01',
-    due_date: '2026-10-31',
-    category_id: business.category('Pembelian Peralatan').id,
+    categoryId: business.category('Pembelian Peralatan').id,
+    issueDate: '2026-10-01',
   });
-  await business.owner.post(`/debts/${debt.body.id}/payments`, {
+  await insertLegacyDebtPayment(business, {
+    debtId,
     amount: 800_000,
-    account_id: business.kas.id,
-    paid_on: '2026-10-15',
+    accountId: business.kas.id,
+    paidOn: '2026-10-15',
   });
   const pl = (await business.owner.get(`/reports/profit-loss?${RANGE}`)).body;
   assert.equal(pl.totals.net_profit, 0);
@@ -230,20 +235,20 @@ test('a payable bill for equipment is not an expense when issued, only cash when
   assert.equal(amountOf(investing, 'Pembelian Peralatan'), -800_000);
 });
 
-test('receivable payments show apart from cash sales in the operating section', async () => {
+test('old receivable payments show apart from cash sales in the operating section', async () => {
   const business = await businessWithCashMovements();
-  const contact = await addContact(business);
-  const debt = await business.owner.post('/debts', {
+  const contactId = await insertLegacyContact(business, { name: 'Bu Sari' });
+  const debtId = await insertLegacyDebt(business, {
     type: 'receivable',
-    contact_id: contact.id,
+    contactId,
     amount: 90_000,
-    issue_date: '2026-10-01',
-    due_date: '2026-10-31',
+    issueDate: '2026-10-01',
   });
-  await business.owner.post(`/debts/${debt.body.id}/payments`, {
+  await insertLegacyDebtPayment(business, {
+    debtId,
     amount: 90_000,
-    account_id: business.kas.id,
-    paid_on: '2026-10-08',
+    accountId: business.kas.id,
+    paidOn: '2026-10-08',
   });
   const { sections } = (await business.owner.get(`/reports/cash-flow?${RANGE}`)).body;
   const operating = sectionNamed(sections, OPERATING_TITLE);
@@ -279,10 +284,6 @@ test('a category can be reclassified, except the system ones that drive sales, s
     cash_activity: 'lainnya',
   });
   assert.equal(invalid.status, 400);
-
-  const staff = await addUser(business, 'staff');
-  const denied = await staff.client.put(`/categories/${rent.id}`, { cash_activity: 'operating' });
-  assert.equal(denied.status, 403);
 });
 
 test('the excluded column and its note appear only when something is excluded', async () => {
@@ -364,18 +365,11 @@ test('CSV export lists each section under its title', async () => {
   assert.ok(text.includes('Total pengeluaran,-500000'));
 });
 
-test('every report exports a PDF, for Owner and Accountant, and empty ranges still work', async () => {
+test('every report exports a PDF, and empty ranges still work', async () => {
   const business = await businessWithCashMovements();
-  const accountant = await addUser(business, 'accountant');
-  const names = [
-    'profit-loss',
-    'cash-flow',
-    'sales-by-product',
-    'expense-by-category',
-    'receivable-aging',
-  ];
+  const names = ['profit-loss', 'cash-flow', 'sales-by-product', 'expense-by-category'];
   for (const name of names) {
-    for (const client of [business.owner, accountant.client]) {
+    for (const client of [business.owner]) {
       const file = await client.get(`/reports/${name}/export?${RANGE}&format=pdf`);
       assert.equal(file.status, 200, name);
       assert.equal(file.body.subarray(0, 5).toString(), '%PDF-', name);

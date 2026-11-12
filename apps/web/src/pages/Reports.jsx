@@ -23,7 +23,6 @@ const REPORTS = [
   { value: 'cash-flow', label: 'Arus Kas' },
   { value: 'sales-by-product', label: 'Penjualan per Produk' },
   { value: 'expense-by-category', label: 'Pengeluaran per Kategori' },
-  { value: 'receivable-aging', label: 'Umur Piutang' },
 ];
 
 const RANGE_OPTIONS = [
@@ -154,10 +153,7 @@ export default function Reports() {
 
   return (
     <Page>
-      <PageHeader
-        title="Laporan"
-        description="Transfer dan pembayaran hutang piutang tidak dihitung sebagai laba."
-      />
+      <PageHeader title="Laporan" description="Transfer tidak dihitung sebagai laba." />
       <div className="space-y-3">
         <PillTabs label="Pilih laporan" options={REPORTS} value={report} onChange={setReport} />
         <PillTabs label="Rentang" options={RANGE_OPTIONS} value={preset} onChange={setPreset} />

@@ -6,16 +6,14 @@ import * as transactions from '../db/transactions.js';
 import { getAccountBalance } from '../db/accounts.js';
 import { changedFields, writeAudit } from '../db/audit.js';
 import { config } from '../config.js';
-import { conflict, fieldError, forbidden, notFound, unprocessable } from '../lib/errors.js';
+import { conflict, fieldError, notFound, unprocessable } from '../lib/errors.js';
 import { requireActiveAccount } from './accounts.js';
 import { requireActiveCategory } from './categories.js';
 
 const SAME_ACCOUNT = 'Akun asal dan tujuan harus berbeda.';
-const EDIT_WINDOW_OVER = 'Transaksi ini sudah tidak bisa diubah. Hubungi pemilik.';
 const SYSTEM_SOURCE =
   'Transaksi ini dibuat otomatis. Ubah nominal, akun, atau tanggalnya dari catatan asalnya.';
 const NO_DELETE_SOURCE = 'Transaksi ini dibuat dari penjualan atau pembayaran. Batalkan dari sana.';
-const STAFF_ROLE = 'staff';
 
 function normalizeTags(tags) {
   return [...new Set(tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean))];
@@ -39,7 +37,6 @@ async function validateLinks(client, businessId, body) {
 
 async function withBalance(client, actor, transactionId, accountId) {
   const transaction = await transactions.getTransaction(client, actor.business_id, transactionId);
-  if (actor.role === STAFF_ROLE) return { transaction };
   return {
     transaction,
     account_balance: await getAccountBalance(client, actor.business_id, accountId),
@@ -70,32 +67,20 @@ export async function createTransaction(actor, body) {
 }
 
 export async function listTransactions(actor, filters) {
-  const scoped = actor.role === STAFF_ROLE ? { ...filters, created_by: actor.id } : filters;
-  return transactions.listTransactions(pool, actor.business_id, scoped);
+  return transactions.listTransactions(pool, actor.business_id, filters);
 }
 
 async function requireVisible(q, actor, transactionId) {
   const transaction = await transactions.getTransaction(q, actor.business_id, transactionId);
   if (!transaction) throw notFound('Transaksi tidak ditemukan.');
-  if (actor.role === STAFF_ROLE && transaction.created_by !== actor.id) {
-    throw notFound('Transaksi tidak ditemukan.');
-  }
   return transaction;
 }
 
 export const getTransaction = (actor, transactionId) => requireVisible(pool, actor, transactionId);
 
-/** BR-013: Staff may edit only their own entries, within 24 hours of creation. */
-async function assertCanEdit(client, actor, transaction) {
-  if (actor.role !== STAFF_ROLE) return;
-  const within = await transactions.isWithinEditWindow(client, actor.business_id, transaction.id);
-  if (transaction.created_by !== actor.id || !within) throw forbidden(EDIT_WINDOW_OVER);
-}
-
 export async function updateTransaction(actor, transactionId, body) {
   return withTx(async (client) => {
     const before = await requireVisible(client, actor, transactionId);
-    await assertCanEdit(client, actor, before);
 
     const next = {
       type: before.type,
@@ -187,8 +172,7 @@ export async function attachReceipt(actor, transactionId, file) {
   const imageType = detectImageType(file.buffer);
   if (!imageType) throw fieldError('receipt', 'Foto harus berformat JPEG, PNG, atau WebP.');
 
-  const transaction = await requireVisible(pool, actor, transactionId);
-  await assertCanEdit(pool, actor, transaction);
+  await requireVisible(pool, actor, transactionId);
 
   const relativePath = path.join(
     actor.business_id,

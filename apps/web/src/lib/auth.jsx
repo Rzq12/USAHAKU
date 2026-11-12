@@ -37,20 +37,3 @@ export function AuthProvider({ children }) {
 export function useAuth() {
   return useContext(AuthContext);
 }
-
-/** Interface permissions mirror PRD 2.4. They only hide controls; the API enforces every rule. */
-export function usePermissions() {
-  const { user } = useAuth();
-  const role = user?.role;
-  const isOwner = role === 'owner';
-  const isStaff = role === 'staff';
-  const isAccountant = role === 'accountant';
-  return {
-    role,
-    isOwner,
-    isStaff,
-    isAccountant,
-    canRecord: isOwner || isStaff,
-    canSeeFinancials: isOwner || isAccountant,
-  };
-}

@@ -5,22 +5,10 @@ export async function getBusiness(q, businessId) {
 
 export async function updateBusiness(q, businessId, b) {
   const { rows } = await q.query(
-    `UPDATE businesses SET name = $2, address = $3, phone = $4, npwp = $5, taxpayer_type = $6,
-       period_start_day = $7, tax_rate_bp = $8, tax_threshold = $9, payment_info = $10,
+    `UPDATE businesses SET name = $2, address = $3, phone = $4, period_start_day = $5,
        updated_at = now()
      WHERE id = $1 RETURNING *`,
-    [
-      businessId,
-      b.name,
-      b.address,
-      b.phone,
-      b.npwp,
-      b.taxpayer_type,
-      b.period_start_day,
-      b.tax_rate_bp,
-      b.tax_threshold,
-      b.payment_info,
-    ],
+    [businessId, b.name, b.address, b.phone, b.period_start_day],
   );
   return rows[0];
 }

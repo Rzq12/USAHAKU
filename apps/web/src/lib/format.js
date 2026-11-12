@@ -85,16 +85,10 @@ export function periodFor(dateString, startDay, offset = 0) {
 }
 
 export const ACCOUNT_TYPES = { cash: 'Tunai', bank: 'Bank', ewallet: 'Dompet digital' };
-export const ROLE_NAMES = { owner: 'Pemilik', staff: 'Staf', accountant: 'Akuntan' };
 export const TRANSACTION_TYPES = {
   income: 'Pemasukan',
   expense: 'Pengeluaran',
   transfer: 'Transfer',
-};
-export const CONTACT_TYPES = {
-  customer: 'Pelanggan',
-  supplier: 'Pemasok',
-  both: 'Pelanggan dan pemasok',
 };
 export const PL_GROUPS = {
   operating_expense: 'Beban operasional',

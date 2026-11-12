@@ -1,226 +1,152 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { useAuth, usePermissions } from '../lib/auth.jsx';
-import { ROLE_NAMES } from '../lib/format.js';
+import { useEffect, useRef, useState } from 'react';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { useAuth } from '../lib/auth.jsx';
 import { Icon } from './Icon.jsx';
-import { Drawer } from './Drawer.jsx';
-import { TransactionDrawer } from './TransactionDrawer.jsx';
 import { ErrorBoundary } from './ErrorBoundary.jsx';
 
-const OWNER = 'owner';
-const STAFF = 'staff';
-const ACCOUNTANT = 'accountant';
-const ALL = [OWNER, STAFF, ACCOUNTANT];
-
-export const NAV_ITEMS = [
-  { to: '/', label: 'Beranda', icon: 'home', roles: ALL, end: true, primary: true },
-  { to: '/transaksi', label: 'Transaksi', icon: 'swap', roles: ALL, primary: true },
-  { to: '/penjualan', label: 'Penjualan', icon: 'cart', roles: ALL, primary: true },
-  { to: '/produk', label: 'Produk', icon: 'box', roles: ALL, primary: true },
-  {
-    to: '/tagihan',
-    label: 'Hutang dan Piutang',
-    short: 'Tagihan',
-    staffLabel: 'Piutang',
-    icon: 'ledger',
-    roles: ALL,
-    primary: true,
-  },
-  { to: '/laporan', label: 'Laporan', icon: 'chart', roles: [OWNER, ACCOUNTANT], primary: true },
-  { to: '/kontak', label: 'Kontak', icon: 'people', roles: ALL },
-  { to: '/faktur', label: 'Faktur', icon: 'invoice', roles: ALL },
-  { to: '/akun', label: 'Akun Kas dan Bank', icon: 'wallet', roles: ALL },
-  { to: '/anggaran', label: 'Anggaran', icon: 'target', roles: [OWNER, ACCOUNTANT] },
-  { to: '/berulang', label: 'Transaksi Berulang', icon: 'repeat', roles: [OWNER, ACCOUNTANT] },
-  { to: '/pajak', label: 'Perkiraan Pajak', icon: 'percent', roles: [OWNER, ACCOUNTANT] },
-  { to: '/kategori', label: 'Kategori dan Aturan', icon: 'tag', roles: ALL },
-  { to: '/impor', label: 'Impor Data', icon: 'upload', roles: [OWNER] },
-  { to: '/ekspor', label: 'Ekspor Data', icon: 'download', roles: [OWNER, ACCOUNTANT] },
-  { to: '/audit', label: 'Log Aktivitas', icon: 'history', roles: [OWNER, ACCOUNTANT] },
-  { to: '/pengaturan', label: 'Pengaturan Usaha', icon: 'settings', roles: [OWNER, ACCOUNTANT] },
-  { to: '/pengguna', label: 'Pengguna', icon: 'people', roles: [OWNER] },
-  { to: '/panduan', label: 'Panduan', icon: 'book', roles: ALL },
+const PRIMARY_NAV = [
+  { to: '/', label: 'Beranda', end: true },
+  { to: '/penjualan/baru', label: 'Penjualan' },
+  { to: '/pengeluaran/baru', label: 'Pengeluaran' },
+  { to: '/laporan', label: 'Laporan' },
+  { to: '/lainnya', label: 'Menu lain' },
 ];
 
-const MOBILE_TABS = {
-  [OWNER]: ['/', '/transaksi', '/penjualan', '/tagihan'],
-  [STAFF]: ['/', '/penjualan', '/produk', '/tagihan'],
-  [ACCOUNTANT]: ['/', '/transaksi', '/laporan', '/tagihan'],
-};
+export const NAV_ITEMS = [
+  { to: '/transaksi', label: 'Riwayat Transaksi', icon: 'swap' },
+  { to: '/penjualan', label: 'Riwayat Penjualan', icon: 'cart' },
+  { to: '/produk', label: 'Produk', icon: 'box' },
+  { to: '/akun', label: 'Akun Kas', icon: 'wallet' },
+  { to: '/kategori', label: 'Kategori', icon: 'tag' },
+  { to: '/ekspor', label: 'Ekspor Data', icon: 'download' },
+  { to: '/pengaturan', label: 'Pengaturan', icon: 'settings' },
+  { to: '/panduan', label: 'Panduan', icon: 'book' },
+];
 
-const AddContext = createContext(null);
+/**
+ * One shared block for the whole link row. It follows the hovered or
+ * keyboard-focused link and fades out when neither is left. Coming back after
+ * a fade, it appears in place instead of sliding in from the last link.
+ */
+function useGlideBlock() {
+  const rowRef = useRef(null);
+  const [block, setBlock] = useState({ x: 0, width: 0, visible: false, glide: false });
 
-export function useAdd() {
-  return useContext(AddContext);
+  function moveTo(element) {
+    const row = rowRef.current.getBoundingClientRect();
+    const target = element.getBoundingClientRect();
+    setBlock((current) => ({
+      x: target.left - row.left,
+      width: target.width,
+      visible: true,
+      glide: current.visible,
+    }));
+  }
+
+  function hide() {
+    setBlock((current) => ({ ...current, visible: false }));
+  }
+
+  const handlers = {
+    onPointerOver(event) {
+      if (event.pointerType === 'touch') return;
+      const target = event.target.closest('[data-glide]');
+      if (target) moveTo(target);
+    },
+    onPointerLeave() {
+      const focused = rowRef.current?.querySelector('[data-glide]:focus-visible');
+      if (focused) moveTo(focused);
+      else hide();
+    },
+    onFocus(event) {
+      const target = event.target.closest('[data-glide]');
+      if (target?.matches(':focus-visible')) moveTo(target);
+    },
+    onBlur(event) {
+      if (!rowRef.current?.contains(event.relatedTarget) && !rowRef.current?.matches(':hover')) {
+        hide();
+      }
+    },
+  };
+
+  return { rowRef, block, handlers };
 }
 
-export function navLabel(item, role) {
-  return role === STAFF && item.staffLabel ? item.staffLabel : item.label;
-}
-
-function useCloseOnOutside(onClose) {
-  const ref = useRef(null);
-  useEffect(() => {
-    const onPointer = (event) => {
-      if (!ref.current?.contains(event.target)) onClose();
-    };
-    const onKey = (event) => {
-      if (event.key === 'Escape') onClose();
-    };
-    document.addEventListener('mousedown', onPointer);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onPointer);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [onClose]);
-  return ref;
-}
-
-function Popover({ button, children, align = 'right' }) {
-  const [open, setOpen] = useState(false);
-  const close = useMemo(() => () => setOpen(false), []);
-  const ref = useCloseOnOutside(close);
-  const location = useLocation();
-  useEffect(() => setOpen(false), [location.pathname]);
+/** Holds the semibold width open so the row does not shift when the current page changes. */
+function NavText({ label, current }) {
   return (
-    <div className="relative" ref={ref}>
-      {button({ open, toggle: () => setOpen((value) => !value) })}
-      {open && (
-        <div
-          className={`absolute top-full z-40 mt-2 w-64 rounded-lg border border-hairline bg-white py-1 shadow-modal ${
-            align === 'right' ? 'right-0' : 'left-0'
-          }`}
-        >
-          {children(() => {
-            ref.current.querySelector('button').focus();
-            close();
-          })}
-        </div>
-      )}
-    </div>
+    <span className="inline-grid justify-items-center">
+      <span className={current ? 'font-semibold' : undefined}>{label}</span>
+      <span className="invisible h-0 font-semibold">{label}</span>
+    </span>
   );
 }
 
-const menuItem =
-  'flex min-h-[44px] w-full items-center gap-3 px-4 text-left text-body-sm text-charcoal hover:bg-surface aria-[current=page]:font-semibold aria-[current=page]:text-primary';
-
-function AddMenu({ onPick, onClose }) {
-  const options = [
-    { key: 'sale', label: 'Penjualan', icon: 'cart' },
-    { key: 'expense', label: 'Pengeluaran', icon: 'receipt' },
-    { key: 'income', label: 'Pemasukan', icon: 'wallet' },
-    { key: 'transfer', label: 'Transfer antar akun', icon: 'swap' },
-  ];
-  return options.map((option) => (
-    <button
-      key={option.key}
-      type="button"
-      className={menuItem}
-      onClick={() => {
-        onClose?.();
-        onPick(option.key);
-      }}
-    >
-      <Icon name={option.icon} />
-      {option.label}
-    </button>
-  ));
+function CurrentDot() {
+  return (
+    <span
+      aria-hidden="true"
+      className="absolute bottom-[3px] left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-primary"
+    />
+  );
 }
 
-function DesktopHeader({ onAdd }) {
-  const { user, business, logout } = useAuth();
-  const { canRecord, role } = usePermissions();
-  const items = NAV_ITEMS.filter((item) => item.roles.includes(role));
-  const primary = items.filter((item) => item.primary);
-  const secondary = items.filter((item) => !item.primary);
+const glideLink =
+  'relative inline-flex min-h-[48px] items-center whitespace-nowrap rounded-md px-3 text-body-sm font-medium transition-colors duration-150 hover:text-ink';
+
+function PrimaryNav() {
+  const { rowRef, block, handlers } = useGlideBlock();
+
+  return (
+    <nav aria-label="Utama" className="flex min-w-0 justify-center">
+      <div ref={rowRef} className="relative flex items-center gap-1" {...handlers}>
+        <span
+          aria-hidden="true"
+          className={`pointer-events-none absolute left-0 top-1/2 h-12 rounded-md bg-tint-gray duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+            block.glide ? 'transition-[opacity,transform,width]' : 'transition-opacity'
+          } ${block.visible ? 'opacity-100' : 'opacity-0'}`}
+          style={{
+            width: block.width,
+            transform: `translate(${block.x}px, -50%)`,
+          }}
+        />
+        {PRIMARY_NAV.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.end}
+            data-glide
+            className={({ isActive }) => `${glideLink} ${isActive ? 'text-ink' : 'text-slate'}`}
+          >
+            {({ isActive }) => (
+              <>
+                <NavText label={item.label} current={isActive} />
+                {isActive && <CurrentDot />}
+              </>
+            )}
+          </NavLink>
+        ))}
+      </div>
+    </nav>
+  );
+}
+
+function DesktopHeader() {
+  const { business } = useAuth();
 
   return (
     <header className="sticky top-0 z-30 hidden border-b border-hairline bg-white lg:block">
-      <div className="mx-auto flex h-16 max-w-[1280px] items-center gap-6 px-8">
-        <Link to="/" className="text-h5 tracking-[-0.02em] text-ink">
+      <div className="mx-auto grid h-16 max-w-[1280px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 px-8 xl:grid-cols-[1fr_auto_1fr] xl:gap-6">
+        <Link to="/" className="justify-self-start text-h5 tracking-[-0.02em] text-ink">
           usahaku
         </Link>
-        <nav aria-label="Utama" className="flex min-w-0 flex-1 items-center gap-1">
-          {primary.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) =>
-                `inline-flex min-h-[44px] items-center whitespace-nowrap rounded-sm px-3 text-body-sm font-medium hover:bg-surface ${
-                  isActive ? 'bg-surface text-ink' : 'text-slate'
-                }`
-              }
-            >
-              {role === STAFF ? navLabel(item, role) : (item.short ?? item.label)}
-            </NavLink>
-          ))}
-          <Popover
-            align="left"
-            button={({ open, toggle }) => (
-              <button
-                type="button"
-                aria-expanded={open}
-                onClick={toggle}
-                className="inline-flex min-h-[44px] items-center gap-1 rounded-sm px-3 text-body-sm font-medium text-slate hover:bg-surface"
-              >
-                Lainnya <Icon name="down" size={16} />
-              </button>
-            )}
-          >
-            {() =>
-              secondary.map((item) => (
-                <NavLink key={item.to} to={item.to} className={menuItem}>
-                  <Icon name={item.icon} />
-                  {item.label}
-                </NavLink>
-              ))
-            }
-          </Popover>
-        </nav>
-        {canRecord && (
-          <Popover
-            button={({ open, toggle }) => (
-              <button type="button" className="btn-primary" aria-expanded={open} onClick={toggle}>
-                <Icon name="plus" size={18} /> Tambah
-              </button>
-            )}
-          >
-            {(close) => <AddMenu onPick={onAdd} onClose={close} />}
-          </Popover>
-        )}
-        <Popover
-          button={({ open, toggle }) => (
-            <button
-              type="button"
-              aria-expanded={open}
-              onClick={toggle}
-              className="flex max-w-[180px] flex-col items-end rounded-sm px-2 py-1 text-right hover:bg-surface"
-            >
-              <span className="w-full truncate text-body-sm font-medium">{business.name}</span>
-              <span className="w-full truncate text-caption text-slate">
-                {ROLE_NAMES[user.role]}
-              </span>
-            </button>
-          )}
+        <PrimaryNav />
+        <p
+          title={business.name}
+          className="max-w-[180px] justify-self-end truncate text-body-sm font-medium"
         >
-          {() => (
-            <>
-              <p className="border-b border-hairline px-4 py-2 text-caption text-slate">
-                {user.name}
-                <br />
-                {user.email}
-              </p>
-              <Link to="/ganti-sandi" className={menuItem}>
-                Ganti kata sandi
-              </Link>
-              <button type="button" className={menuItem} onClick={logout}>
-                <Icon name="logout" /> Keluar
-              </button>
-            </>
-          )}
-        </Popover>
+          {business.name}
+        </p>
       </div>
     </header>
   );
@@ -238,96 +164,34 @@ function MobileHeader() {
   );
 }
 
-function BottomNav() {
-  const { role } = usePermissions();
-  const tabs = MOBILE_TABS[role].map((to) => NAV_ITEMS.find((item) => item.to === to));
-  const tabClass = ({ isActive }) =>
-    `flex min-h-[56px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium ${
-      isActive ? 'text-primary' : 'text-slate'
-    }`;
-  return (
-    <nav
-      aria-label="Utama"
-      className="safe-bottom fixed inset-x-0 bottom-0 z-30 flex border-t border-hairline bg-white lg:hidden"
-    >
-      {tabs.map((item) => (
-        <NavLink key={item.to} to={item.to} end={item.end} className={tabClass}>
-          <Icon name={item.icon} size={22} />
-          {role === STAFF ? navLabel(item, role) : (item.short ?? item.label)}
-        </NavLink>
-      ))}
-      <NavLink to="/lainnya" className={tabClass}>
-        <Icon name="more" size={22} />
-        Lainnya
-      </NavLink>
-    </nav>
-  );
-}
-
 export function Layout() {
-  const navigate = useNavigate();
-  const { canRecord } = usePermissions();
   const location = useLocation();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [drawer, setDrawer] = useState({ open: false, type: 'expense' });
 
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [location.pathname]);
 
-  const value = useMemo(
-    () => ({
-      addTransaction: (type) => setDrawer({ open: true, type }),
-    }),
-    [],
-  );
-
-  function pick(key) {
-    setMenuOpen(false);
-    if (key === 'sale') navigate('/penjualan/baru');
-    else setDrawer({ open: true, type: key });
-  }
-
-  const onFormPage = location.pathname === '/penjualan/baru';
-
   return (
-    <AddContext.Provider value={value}>
+    <>
       <a
         href="#konten"
         className="sr-only z-50 rounded-md bg-white px-4 py-2 focus:not-sr-only focus:fixed focus:left-2 focus:top-2"
       >
         Lewati ke konten
       </a>
-      <DesktopHeader onAdd={pick} />
+      <DesktopHeader />
       <MobileHeader />
-      <main id="konten" className="pb-28 lg:pb-16">
+      {location.pathname !== '/' && (
+        <Link to="/" className="btn-ghost mx-4 mt-2 sm:mx-6 lg:hidden">
+          <Icon name="back" size={20} /> Kembali ke Beranda
+        </Link>
+      )}
+      <main id="konten" className="pb-16">
         <ErrorBoundary key={location.pathname}>
           <Outlet />
         </ErrorBoundary>
       </main>
-      {canRecord && !onFormPage && (
-        <button
-          type="button"
-          aria-label="Tambah catatan"
-          onClick={() => setMenuOpen(true)}
-          className="fixed bottom-[76px] right-4 z-30 flex h-14 w-14 items-center justify-center rounded-lg bg-primary text-white shadow-card hover:bg-primary-pressed lg:hidden"
-          style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
-        >
-          <Icon name="plus" size={26} />
-        </button>
-      )}
-      {!onFormPage && <BottomNav />}
-      <Drawer open={menuOpen} onClose={() => setMenuOpen(false)} title="Tambah catatan">
-        <div className="-mx-5 -my-2">
-          <AddMenu onPick={pick} />
-        </div>
-      </Drawer>
-      <TransactionDrawer
-        open={drawer.open}
-        initialType={drawer.type}
-        onClose={() => setDrawer((current) => ({ ...current, open: false }))}
-      />
-    </AddContext.Provider>
+    </>
   );
 }
 
