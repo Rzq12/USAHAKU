@@ -4,7 +4,7 @@ import * as reports from '../db/reports.js';
 import { addDays, daysBetween } from '../lib/dates.js';
 import { formatDateLong, formatPrintedAt } from '../lib/format.js';
 import { toCsv } from '../lib/csv.js';
-import { reportPdf } from '../lib/pdf.js';
+import { reportPdf, reportsPdf } from '../lib/pdf.js';
 import { formatQty } from '../lib/money.js';
 
 const money = (key, label) => ({ key, label, numeric: true, money: true });
@@ -623,9 +623,11 @@ function addXlsxRow(sheet, section, row) {
   });
 }
 
-async function xlsxFile(table, baseName, meta) {
-  const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet(table.title.slice(0, 31));
+const XLSX_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+/** One report on its own sheet; the sheet name defaults to the report title. */
+function writeXlsxSheet(workbook, table, meta, sheetName = table.title) {
+  const sheet = workbook.addWorksheet(sheetName.slice(0, 31));
   sheet.addRow([meta.businessName]).font = { bold: true };
   sheet.addRow([table.title]).font = { bold: true, size: 14 };
   sheet.addRow([table.subtitle]);
@@ -652,9 +654,14 @@ async function xlsxFile(table, baseName, meta) {
   for (let index = 1; index <= columnCount; index += 1) {
     sheet.getColumn(index).width = index === 1 ? 34 : 18;
   }
+}
+
+async function xlsxFile(table, baseName, meta) {
+  const workbook = new ExcelJS.Workbook();
+  writeXlsxSheet(workbook, table, meta);
   return {
     filename: `${baseName}.xlsx`,
-    contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    contentType: XLSX_CONTENT_TYPE,
     buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
   };
 }
@@ -669,14 +676,58 @@ async function pdfFile(table, baseName, meta) {
 
 const EXPORTERS = { csv: csvFile, xlsx: xlsxFile, pdf: pdfFile };
 
+const exportMeta = (actor) => ({
+  businessName: actor.business_name,
+  printedBy: actor.name,
+  printedAt: formatPrintedAt(new Date()),
+});
+
+/*
+ * The three statements for one range in one file, so they reconcile: the balance sheet
+ * is as of `to`, profit and cash flow cover `from` to `to`.
+ */
+const STATEMENTS = [
+  { name: 'balance-sheet', sheet: 'Neraca' },
+  { name: 'profit-loss', sheet: 'Laba Rugi' },
+  { name: 'cash-flow', sheet: 'Arus Kas' },
+];
+
+export async function exportFinancialStatements(actor, { from, to, format }) {
+  const tables = await Promise.all(
+    STATEMENTS.map((statement) => runReport(actor, statement.name, { from, to })),
+  );
+  const [balance] = tables;
+  if (from !== `${to.slice(0, 4)}-01-01`) {
+    balance.notes.push(
+      `Periode laporan ini dimulai ${formatDateLong(from)}, jadi Laba Tahun Berjalan di neraca (sejak 1 Januari) bisa berbeda dengan laba bersih di laporan laba rugi.`,
+    );
+  }
+  const meta = exportMeta(actor);
+  const baseName = `laporan-keuangan_${from}_${to}`;
+  if (format === 'pdf') {
+    return {
+      filename: `${baseName}.pdf`,
+      contentType: 'application/pdf',
+      buffer: await reportsPdf(
+        tables.map((table) => ({ ...table, sections: sectionsOf(table) })),
+        meta,
+        'Laporan Keuangan',
+      ),
+    };
+  }
+  const workbook = new ExcelJS.Workbook();
+  tables.forEach((table, index) => writeXlsxSheet(workbook, table, meta, STATEMENTS[index].sheet));
+  return {
+    filename: `${baseName}.xlsx`,
+    contentType: XLSX_CONTENT_TYPE,
+    buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+  };
+}
+
 /** The file is built from the same table object the screen shows, so totals cannot differ. */
 export async function exportReport(actor, name, query) {
   const table = await runReport(actor, name, query);
-  const meta = {
-    businessName: actor.business_name,
-    printedBy: actor.name,
-    printedAt: formatPrintedAt(new Date()),
-  };
+  const meta = exportMeta(actor);
   // A balance sheet is one date, so its file is named by that date alone.
   const period = table.as_of ?? `${query.from}_${query.to}`;
   return EXPORTERS[query.format](table, `${name}_${period}`, meta);

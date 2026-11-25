@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { downloadFile, query } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
 import { useFetch } from '../lib/hooks.js';
-import { accounting, periodFor, todayJakarta } from '../lib/format.js';
+import { accounting, formatDate, periodFor, todayJakarta } from '../lib/format.js';
 import { Page } from '../components/Layout.jsx';
 import { Icon } from '../components/Icon.jsx';
 import {
@@ -148,17 +148,25 @@ export default function Reports() {
   };
   const state = useFetch(`/reports/${report}${query(params)}`);
 
-  async function exportAs(format) {
-    setExporting(format);
+  // `key` tells the buttons apart, so only the one pressed says it is preparing.
+  async function download(key, path) {
+    setExporting(key);
     setExportError(null);
     try {
-      await downloadFile(`/reports/${report}/export${query({ ...params, format })}`);
+      await downloadFile(path);
     } catch (error) {
       setExportError(error.message);
     } finally {
       setExporting(null);
     }
   }
+  const exportAs = (format) =>
+    download(format, `/reports/${report}/export${query({ ...params, format })}`);
+  const exportPackage = (format) =>
+    download(
+      `package-${format}`,
+      `/reports/financial-statements/export${query({ ...range, format })}`,
+    );
 
   return (
     <Page>
@@ -212,6 +220,33 @@ export default function Reports() {
             </SelectField>
           </div>
         )}
+      </div>
+
+      <div className="card mt-4 flex flex-wrap items-center justify-between gap-3 p-4">
+        <div>
+          <h2 className="text-h5">Laporan keuangan lengkap</h2>
+          <p className="num text-body-sm text-slate">
+            Neraca per {formatDate(range.to)}, Laba Rugi dan Arus Kas {formatDate(range.from)} s.d.{' '}
+            {formatDate(range.to)}, dalam satu file.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {[
+            { format: 'xlsx', label: 'Excel' },
+            { format: 'pdf', label: 'PDF' },
+          ].map(({ format, label }) => (
+            <button
+              key={format}
+              type="button"
+              className="btn-secondary"
+              disabled={Boolean(exporting)}
+              onClick={() => exportPackage(format)}
+            >
+              <Icon name="download" size={16} />
+              {exporting === `package-${format}` ? 'Menyiapkan...' : label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="mt-6">

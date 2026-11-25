@@ -221,22 +221,18 @@ function drawFooters(doc, meta) {
   }
 }
 
-/** A financial report: same figures as the screen, in statement form. */
-export function reportPdf(fullTable, meta) {
-  // Some sections only help on screen, such as the cash flow summary that repeats the closing.
-  const table = {
-    ...fullTable,
-    sections: fullTable.sections.filter((section) => !section.screen_only),
-  };
-  const widest = Math.max(...table.sections.map((section) => section.columns.length));
-  const doc = new PDFDocument({
-    size: 'A4',
-    layout: widest > LANDSCAPE_ABOVE_COLUMNS ? 'landscape' : 'portrait',
-    margins: REPORT_MARGIN,
-    bufferPages: true,
-    info: { Title: `${table.title} - ${meta.businessName}` },
-  });
+/** Some sections only help on screen, such as the cash flow summary that repeats the closing. */
+function printableSections(table) {
+  return { ...table, sections: table.sections.filter((section) => !section.screen_only) };
+}
 
+function layoutFor(table) {
+  const widest = Math.max(...table.sections.map((section) => section.columns.length));
+  return widest > LANDSCAPE_ABOVE_COLUMNS ? 'landscape' : 'portrait';
+}
+
+/** One statement from the business name heading down to its signatures. */
+function drawReport(doc, table, meta) {
   doc.fillColor(INK).font('Helvetica-Bold').fontSize(12).text(meta.businessName);
   doc.fontSize(15).text(table.title.toUpperCase(), { characterSpacing: 0.3 });
   doc.moveDown(0.15);
@@ -251,6 +247,30 @@ export function reportPdf(fullTable, meta) {
   });
   y = drawNotes(doc, table.notes ?? [], y);
   drawSignatures(doc, meta.printedBy, y);
+}
+
+/**
+ * Several statements in one file, each starting on a new page. Page numbers run across
+ * the whole file, so a printed set stays in order.
+ */
+export function reportsPdf(fullTables, meta, title) {
+  const tables = fullTables.map(printableSections);
+  const doc = new PDFDocument({
+    size: 'A4',
+    layout: layoutFor(tables[0]),
+    margins: REPORT_MARGIN,
+    bufferPages: true,
+    info: { Title: `${title} - ${meta.businessName}` },
+  });
+  tables.forEach((table, index) => {
+    if (index > 0) doc.addPage({ size: 'A4', layout: layoutFor(table), margins: REPORT_MARGIN });
+    drawReport(doc, table, meta);
+  });
   drawFooters(doc, meta);
   return toBuffer(doc);
+}
+
+/** A financial report: same figures as the screen, in statement form. */
+export function reportPdf(table, meta) {
+  return reportsPdf([table], meta, table.title);
 }
