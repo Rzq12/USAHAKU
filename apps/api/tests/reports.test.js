@@ -367,7 +367,13 @@ test('CSV export lists each section under its title', async () => {
 
 test('every report exports a PDF, and empty ranges still work', async () => {
   const business = await businessWithCashMovements();
-  const names = ['profit-loss', 'cash-flow', 'sales-by-product', 'expense-by-category'];
+  const names = [
+    'balance-sheet',
+    'profit-loss',
+    'cash-flow',
+    'sales-by-product',
+    'expense-by-category',
+  ];
   for (const name of names) {
     for (const client of [business.owner]) {
       const file = await client.get(`/reports/${name}/export?${RANGE}&format=pdf`);

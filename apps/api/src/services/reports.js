@@ -351,7 +351,151 @@ async function expenseByCategory(businessId, { from, to }) {
   };
 }
 
+/*
+ * usahaku keeps single-entry books, so the balance sheet is derived, not read from a ledger.
+ * Financing categories carry no loan or equity flag: a name with "pinjam" or "angsuran"
+ * is a loan, other financing receipts are capital, other financing payments are drawings.
+ */
+const LOAN_NAME = /pinjam|angsuran/i;
+const EARLIEST_DATE = '1900-01-01';
+
+function nonOperatingTotals(rows) {
+  const sum = (filter) => rows.filter(filter).reduce((total, row) => total + row.amount, 0);
+  const financing = (row) => row.activity === 'financing';
+  const isLoan = (row) => financing(row) && LOAN_NAME.test(row.name);
+  return {
+    fixed_assets:
+      sum((row) => row.activity === 'investing' && row.type === 'expense') -
+      sum((row) => row.activity === 'investing' && row.type === 'income'),
+    loans:
+      sum((row) => isLoan(row) && row.type === 'income') -
+      sum((row) => isLoan(row) && row.type === 'expense'),
+    paid_in_capital: sum((row) => financing(row) && !isLoan(row) && row.type === 'income'),
+    drawings: 0 - sum((row) => financing(row) && !isLoan(row) && row.type === 'expense'),
+    has_financing: rows.some(financing),
+  };
+}
+
+function balanceSheetNotes(totals, year, hasFinancing) {
+  const notes = [
+    'Persediaan dinilai dengan harga modal produk saat ini.',
+    `Laba Tahun Berjalan dihitung sejak 1 Januari ${year}. Laba sebelum tanggal itu masuk Laba Ditahan.`,
+  ];
+  if (totals.fixed_assets !== 0) {
+    notes.push('Harta tetap dicatat sebesar harga beli, tanpa penyusutan.');
+  }
+  if (hasFinancing) {
+    notes.push(
+      'Kategori pendanaan yang namanya memuat "pinjam" atau "angsuran" dihitung sebagai Utang Jangka Panjang. Pemasukan pendanaan lain dihitung sebagai Modal Disetor, pengeluarannya sebagai Prive.',
+    );
+  }
+  if (totals.adjustment !== 0) {
+    notes.push(
+      'Penyesuaian Saldo: selisih antara harta dan sumbernya karena pencatatan satu sisi, misalnya harga modal produk yang diubah, stok masuk tanpa pengeluaran, penjualan produk yang stoknya tidak dilacak, atau transaksi yang dikecualikan dari laporan.',
+    );
+  }
+  return notes;
+}
+
+/** Rows whose amount is zero are left out, except the ones every balance sheet carries. */
+const lineIfAny = (label, amount, extra = {}) =>
+  amount === 0 ? [] : [{ label, amount, ...extra }];
+
+function balanceSheetSections(accounts, totals) {
+  const section = (title, rows) => ({ title, plain: true, columns: LABEL_AMOUNT_COLUMNS, rows });
+  const total = (label, amount, double = false) => ({ label, amount, emphasis: true, double });
+  return [
+    section('Harta', [
+      ...accounts
+        .filter((account) => account.balance !== 0)
+        .map((account) => ({ label: account.name, amount: account.balance, indent: true })),
+      total('Total Kas dan Bank', totals.cash),
+      ...lineIfAny('Piutang Usaha', totals.receivables),
+      ...lineIfAny('Persediaan Barang', totals.inventory),
+      total('Total Harta Lancar', totals.current_assets),
+      ...(totals.fixed_assets === 0
+        ? []
+        : [
+            { label: 'Harta Tetap Berwujud', amount: totals.fixed_assets, indent: true },
+            total('Total Harta Tetap', totals.fixed_assets),
+          ]),
+      total('Total Harta', totals.total_assets, true),
+    ]),
+    section('Kewajiban', [
+      ...lineIfAny('Utang Usaha', totals.payables),
+      ...lineIfAny('Utang Jangka Panjang', totals.loans),
+      total('Total Kewajiban', totals.total_liabilities),
+    ]),
+    section('Modal', [
+      { label: 'Modal Awal', amount: totals.opening_equity },
+      ...lineIfAny('Modal Disetor', totals.paid_in_capital),
+      ...lineIfAny('Prive', totals.drawings),
+      { label: 'Laba Ditahan', amount: totals.retained_earnings },
+      { label: 'Laba Tahun Berjalan', amount: totals.current_year_profit },
+      ...lineIfAny('Penyesuaian Saldo', totals.adjustment),
+      total('Total Modal', totals.total_equity),
+      total('Total Kewajiban dan Modal', totals.total_liabilities_and_equity, true),
+    ]),
+  ];
+}
+
+/** Position on one date (`to`). Profit splits at 1 January of that date's year, like Zahir. */
+async function balanceSheet(businessId, { to }) {
+  const year = Number(to.slice(0, 4));
+  const [figures, retained, currentYear] = await Promise.all([
+    reports.balanceSheetFigures(pool, businessId, to),
+    profitLossFigures(businessId, EARLIEST_DATE, `${year - 1}-12-31`),
+    profitLossFigures(businessId, `${year}-01-01`, to),
+  ]);
+  const other = nonOperatingTotals(figures.non_operating);
+  const cash = figures.accounts.reduce((sum, account) => sum + account.balance, 0);
+  const currentAssets = cash + figures.receivables + figures.inventory;
+  const totalAssets = currentAssets + other.fixed_assets;
+  const totalLiabilities = figures.payables + other.loans;
+  const openingEquity =
+    figures.accounts.reduce((sum, account) => sum + account.opening_balance, 0) +
+    figures.opening_stock;
+  const equityBeforeAdjustment =
+    openingEquity +
+    other.paid_in_capital +
+    other.drawings +
+    retained.net_profit +
+    currentYear.net_profit;
+  const adjustment = totalAssets - totalLiabilities - equityBeforeAdjustment;
+  const totalEquity = equityBeforeAdjustment + adjustment;
+  const totals = {
+    cash,
+    receivables: figures.receivables,
+    inventory: figures.inventory,
+    current_assets: currentAssets,
+    fixed_assets: other.fixed_assets,
+    total_assets: totalAssets,
+    payables: figures.payables,
+    loans: other.loans,
+    total_liabilities: totalLiabilities,
+    opening_equity: openingEquity,
+    paid_in_capital: other.paid_in_capital,
+    drawings: other.drawings,
+    retained_earnings: retained.net_profit,
+    current_year_profit: currentYear.net_profit,
+    adjustment,
+    total_equity: totalEquity,
+    total_liabilities_and_equity: totalLiabilities + totalEquity,
+  };
+  return {
+    title: 'Neraca',
+    subtitle: `Per ${formatDateLong(to)}`,
+    basis: ACCRUAL_BASIS,
+    as_of: to,
+    sections: balanceSheetSections(figures.accounts, totals),
+    notes: balanceSheetNotes(totals, year, other.has_financing),
+    totals,
+    is_empty: Object.values(totals).every((value) => value === 0),
+  };
+}
+
 export const REPORTS = {
+  'balance-sheet': balanceSheet,
   'profit-loss': profitLoss,
   'cash-flow': cashFlow,
   'sales-by-product': salesByProduct,
@@ -456,5 +600,7 @@ export async function exportReport(actor, name, query) {
     printedBy: actor.name,
     printedAt: formatPrintedAt(new Date()),
   };
-  return EXPORTERS[query.format](table, `${name}_${query.from}_${query.to}`, meta);
+  // A balance sheet is one date, so its file is named by that date alone.
+  const period = table.as_of ?? `${query.from}_${query.to}`;
+  return EXPORTERS[query.format](table, `${name}_${period}`, meta);
 }

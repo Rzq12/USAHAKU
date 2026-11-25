@@ -19,6 +19,7 @@ import {
 } from '../components/ui.jsx';
 
 const REPORTS = [
+  { value: 'balance-sheet', label: 'Neraca' },
   { value: 'profit-loss', label: 'Laba Rugi' },
   { value: 'cash-flow', label: 'Arus Kas' },
   { value: 'sales-by-product', label: 'Penjualan per Produk' },
@@ -125,13 +126,16 @@ export default function Reports() {
   const [custom, setCustom] = useState(() => presetRange('current', business.period_start_day));
   const [compare, setCompare] = useState(false);
   const [accountId, setAccountId] = useState('');
+  const [asOf, setAsOf] = useState(() => todayJakarta());
   const [exporting, setExporting] = useState(null);
   const [exportError, setExportError] = useState(null);
+  const isBalanceSheet = report === 'balance-sheet';
 
-  const range = useMemo(
-    () => (preset === 'custom' ? custom : presetRange(preset, business.period_start_day)),
-    [preset, custom, business.period_start_day],
-  );
+  const range = useMemo(() => {
+    // A balance sheet is one date; its profit splits at 1 January of that year.
+    if (isBalanceSheet) return { from: `${asOf.slice(0, 4)}-01-01`, to: asOf };
+    return preset === 'custom' ? custom : presetRange(preset, business.period_start_day);
+  }, [isBalanceSheet, asOf, preset, custom, business.period_start_day]);
   const params = {
     ...range,
     compare: report === 'profit-loss' && compare ? 'true' : '',
@@ -156,8 +160,19 @@ export default function Reports() {
       <PageHeader title="Laporan" description="Transfer tidak dihitung sebagai laba." />
       <div className="space-y-3">
         <PillTabs label="Pilih laporan" options={REPORTS} value={report} onChange={setReport} />
-        <PillTabs label="Rentang" options={RANGE_OPTIONS} value={preset} onChange={setPreset} />
-        {preset === 'custom' && (
+        {isBalanceSheet ? (
+          <div className="sm:max-w-[14rem]">
+            <TextField
+              label="Per tanggal"
+              type="date"
+              value={asOf}
+              onChange={(e) => e.target.value && setAsOf(e.target.value)}
+            />
+          </div>
+        ) : (
+          <PillTabs label="Rentang" options={RANGE_OPTIONS} value={preset} onChange={setPreset} />
+        )}
+        {!isBalanceSheet && preset === 'custom' && (
           <div className="grid grid-cols-2 gap-3 sm:max-w-md">
             <TextField
               label="Dari tanggal"
@@ -225,8 +240,16 @@ export default function Reports() {
               <FormError message={exportError} />
               {table.is_empty ? (
                 <EmptyState
-                  title="Tidak ada data pada rentang ini."
-                  body="Pilih rentang lain, atau catat transaksi lebih dulu."
+                  title={
+                    isBalanceSheet
+                      ? 'Belum ada saldo pada tanggal ini.'
+                      : 'Tidak ada data pada rentang ini.'
+                  }
+                  body={
+                    isBalanceSheet
+                      ? 'Pilih tanggal lain, atau isi saldo awal akun lebih dulu.'
+                      : 'Pilih rentang lain, atau catat transaksi lebih dulu.'
+                  }
                 />
               ) : (
                 <ReportTable table={table} />
