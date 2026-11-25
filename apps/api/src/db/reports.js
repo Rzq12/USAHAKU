@@ -48,11 +48,13 @@ export async function otherIncome(q, businessId, from, to) {
 /** Per category, recognized expenses (BR-010): inventory purchases are in their own group. */
 export async function expensesByCategory(q, businessId, from, to) {
   const { rows } = await q.query(
-    `SELECT c.id AS category_id, c.name, c.pl_group, SUM(x.amount) AS amount
+    `SELECT c.id AS category_id, c.name, c.pl_group, parent.name AS parent_name,
+       SUM(x.amount) AS amount
      FROM (${EXPENSE_LINES}) x
      JOIN categories c ON c.id = x.category_id
+     LEFT JOIN categories parent ON parent.id = c.parent_id
      WHERE c.cash_activity = 'operating'
-     GROUP BY c.id, c.name, c.pl_group
+     GROUP BY c.id, c.name, c.pl_group, parent.name
      ORDER BY amount DESC`,
     [businessId, from, to],
   );

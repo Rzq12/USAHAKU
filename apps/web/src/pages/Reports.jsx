@@ -48,8 +48,13 @@ function rowClass(row) {
   if (row.double) {
     return 'bg-surface-soft font-semibold [&>td]:border-b-[3px] [&>td]:border-double [&>td]:border-b-ink';
   }
-  return row.emphasis ? 'bg-surface-soft font-semibold' : '';
+  if (row.emphasis) return 'bg-surface-soft font-semibold';
+  return row.heading ? 'font-semibold' : '';
 }
+
+/** Indent is a level (1 or 2); older reports send true for one level. */
+const INDENT_CLASS = { 1: 'pl-8', 2: 'pl-14' };
+const indentClass = (row) => INDENT_CLASS[row.indent === true ? 1 : row.indent] ?? '';
 
 function ReportSection({ section, caption }) {
   const cell = (row, column) => {
@@ -85,7 +90,7 @@ function ReportSection({ section, caption }) {
                   <td
                     key={column.key}
                     className={`table-cell ${column.numeric ? 'num whitespace-nowrap text-right' : ''} ${
-                      columnIndex === 0 && row.indent ? 'pl-8' : ''
+                      columnIndex === 0 ? indentClass(row) : ''
                     }`}
                   >
                     {cell(row, column)}

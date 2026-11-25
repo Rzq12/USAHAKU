@@ -26,65 +26,116 @@ async function profitLossFigures(businessId, from, to) {
   const grossProfit = sales.revenue - sales.cogs;
   const operatingTotal = sum(operating);
   const otherExpenseTotal = sum(otherExpense);
+  const operatingProfit = grossProfit - operatingTotal;
   return {
     revenue: sales.revenue,
     cogs: sales.cogs,
     gross_profit: grossProfit,
     operating,
     operating_total: operatingTotal,
+    operating_profit: operatingProfit,
     other_income: other.amount,
     other_expense: otherExpense,
     other_expense_total: otherExpenseTotal,
-    net_profit: grossProfit - operatingTotal + other.amount - otherExpenseTotal,
+    net_profit: operatingProfit + other.amount - otherExpenseTotal,
     has_data: sales.sale_count > 0 || expenses.length > 0 || other.line_count > 0,
   };
 }
 
-function plRows(current, previous) {
-  const categoryNames = (group) => {
-    const names = new Map();
-    for (const row of current[group]) names.set(row.name, true);
-    for (const row of previous?.[group] ?? []) names.set(row.name, true);
-    return [...names.keys()];
+/**
+ * Expense categories of one group, each child under its parent, largest first.
+ * Both periods share one list so a category that only spent last period still shows.
+ */
+function expenseGroups(current, previous, group) {
+  const groups = new Map();
+  const collect = (figures, key) => {
+    for (const row of figures?.[group] ?? []) {
+      const groupName = row.parent_name ?? row.name;
+      if (!groups.has(groupName)) groups.set(groupName, new Map());
+      const lines = groups.get(groupName);
+      const line = lines.get(row.name) ?? { name: row.name, current: 0, previous: 0 };
+      line[key] += row.amount;
+      lines.set(row.name, line);
+    }
   };
-  const amountOf = (figures, group, name) =>
-    figures?.[group].find((row) => row.name === name)?.amount ?? 0;
+  collect(current, 'current');
+  collect(previous, 'previous');
+  const total = (lines, key) => lines.reduce((sum, line) => sum + line[key], 0);
+  return [...groups.entries()]
+    .map(([name, lines]) => ({
+      name,
+      lines: [...lines.values()].sort((a, b) => b.current - a.current),
+    }))
+    .map((item) => ({
+      ...item,
+      current: total(item.lines, 'current'),
+      previous: total(item.lines, 'previous'),
+    }))
+    .sort((a, b) => b.current - a.current);
+}
 
-  const line = (label, value, previousValue, emphasis = false, indent = false, double = false) => {
-    const row = { label, amount: value, emphasis, indent, double };
+/** Zahir's order: revenue, cost of revenue, gross, operating groups, operating profit, other, net. */
+function plRows(current, previous) {
+  const line = (label, value, previousValue, style = {}) => {
+    const row = { label, amount: value, ...style };
     if (previous) {
       row.previous = previousValue;
       row.change = value - previousValue;
     }
     return row;
   };
+  const heading = (label, indent = 0) => {
+    const row = { label, amount: null, heading: true, indent };
+    if (previous) Object.assign(row, { previous: null, change: null });
+    return row;
+  };
+  const total = (label, figure, style = {}) =>
+    line(label, current[figure], previous?.[figure], { emphasis: true, ...style });
+
+  const groupRows = (group) =>
+    expenseGroups(current, previous, group).flatMap((item) => {
+      const [only] = item.lines;
+      if (item.lines.length === 1 && only.name === item.name) {
+        return [line(item.name, only.current, only.previous, { indent: 1 })];
+      }
+      return [
+        heading(item.name, 1),
+        ...item.lines.map((child) =>
+          line(
+            child.name === item.name ? `${child.name} lainnya` : child.name,
+            child.current,
+            child.previous,
+            {
+              indent: 2,
+            },
+          ),
+        ),
+        line(`Total ${item.name}`, item.current, item.previous, { emphasis: true, indent: 1 }),
+      ];
+    });
+  const otherExpenseRows = groupRows('other_expense');
 
   return [
-    line('Pendapatan penjualan', current.revenue, previous?.revenue),
-    line('Harga pokok penjualan', current.cogs, previous?.cogs),
-    line('Laba kotor', current.gross_profit, previous?.gross_profit, true),
-    ...categoryNames('operating').map((name) =>
-      line(
-        name,
-        amountOf(current, 'operating', name),
-        amountOf(previous, 'operating', name),
-        false,
-        true,
-      ),
-    ),
-    line('Total beban operasional', current.operating_total, previous?.operating_total, true),
+    heading('Pendapatan'),
+    line('Pendapatan penjualan', current.revenue, previous?.revenue, { indent: 1 }),
+    total('Total pendapatan', 'revenue'),
+    heading('Beban atas Pendapatan'),
+    line('Harga pokok penjualan', current.cogs, previous?.cogs, { indent: 1 }),
+    total('Total beban atas pendapatan', 'cogs'),
+    total('Laba kotor', 'gross_profit'),
+    heading('Beban Operasional'),
+    ...groupRows('operating'),
+    total('Total beban operasional', 'operating_total'),
+    total('Laba operasi', 'operating_profit'),
     line('Pendapatan lain', current.other_income, previous?.other_income),
-    ...categoryNames('other_expense').map((name) =>
-      line(
-        name,
-        amountOf(current, 'other_expense', name),
-        amountOf(previous, 'other_expense', name),
-        false,
-        true,
-      ),
-    ),
-    line('Total beban lain', current.other_expense_total, previous?.other_expense_total, true),
-    line('Laba bersih', current.net_profit, previous?.net_profit, true, false, true),
+    ...(otherExpenseRows.length === 0
+      ? []
+      : [
+          heading('Beban Lain'),
+          ...otherExpenseRows,
+          total('Total beban lain', 'other_expense_total'),
+        ]),
+    total('Laba bersih', 'net_profit', { double: true }),
   ];
 }
 
@@ -116,6 +167,7 @@ async function profitLoss(businessId, { from, to, compare }) {
       cogs: current.cogs,
       gross_profit: current.gross_profit,
       operating_expenses: current.operating_total,
+      operating_profit: current.operating_profit,
       other_income: current.other_income,
       other_expenses: current.other_expense_total,
       net_profit: current.net_profit,
@@ -204,6 +256,26 @@ function cashActivitySections(categories) {
   ).map((activity) => cashActivitySection(activity, categories));
 }
 
+/*
+ * Zahir closes with the net change, the opening balance, and the closing balance. Transfers
+ * and excluded transactions move a balance without being receipts or payments, so they
+ * get their own lines here; otherwise opening plus change would not reach the closing.
+ */
+function cashClosingSection(totals) {
+  return {
+    title: 'Perubahan kas',
+    plain: true,
+    columns: LABEL_AMOUNT_COLUMNS,
+    rows: [
+      { label: 'Kenaikan (penurunan) kas', amount: totals.net_cash_flow, emphasis: true },
+      ...lineIfAny('Transfer bersih', totals.transfer_net),
+      ...lineIfAny('Transaksi dikecualikan', totals.excluded_net),
+      { label: 'Saldo awal kas dan bank', amount: totals.opening },
+      { label: 'Saldo akhir kas dan bank', amount: totals.closing, emphasis: true, double: true },
+    ],
+  };
+}
+
 function cashFlowNotes(totals, accountId) {
   const notes = [
     'Transfer antar akun tidak dihitung sebagai penerimaan atau pengeluaran.',
@@ -257,10 +329,13 @@ async function cashFlow(businessId, { from, to, account_id }) {
       {
         title: 'Ringkasan',
         plain: true,
+        // The PDF reads top to bottom like Zahir and ends with the closing block instead.
+        screen_only: true,
         columns: LABEL_AMOUNT_COLUMNS,
         rows: cashSummaryRows(totals, categories),
       },
       ...cashActivitySections(categories),
+      cashClosingSection(totals),
       {
         title: 'Rincian per akun',
         columns: [
@@ -532,7 +607,9 @@ const XLSX_HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: '
 
 function addXlsxRow(sheet, section, row) {
   const added = sheet.addRow(section.columns.map((column) => row[column.key] ?? null));
-  if (row.emphasis) added.font = { bold: true };
+  if (row.emphasis || row.heading) added.font = { bold: true };
+  const indent = row.indent === true ? 1 : row.indent || 0;
+  if (indent) added.getCell(1).alignment = { indent };
   section.columns.forEach((column, index) => {
     const cell = added.getCell(index + 1);
     if (column.money) cell.numFmt = XLSX_ACCOUNTING;

@@ -87,6 +87,10 @@ function drawSectionTitle(doc, title, y) {
   return y + height;
 }
 
+const boldRow = (row) => row.emphasis || row.heading;
+/** Indent is a level (1 or 2); older reports pass true for one level. */
+const indentOf = (row) => (row.indent === true ? 1 : row.indent || 0) * 12;
+
 function formatReportCell(row, column) {
   const value = row[column.key];
   if (value === null || value === undefined) return '';
@@ -104,7 +108,7 @@ function sectionHeight(doc, section, widths) {
     );
   }
   for (const row of section.rows) {
-    doc.font(row.emphasis ? 'Helvetica-Bold' : 'Helvetica').fontSize(REPORT_BODY_SIZE);
+    doc.font(boldRow(row) ? 'Helvetica-Bold' : 'Helvetica').fontSize(REPORT_BODY_SIZE);
     const cells = section.columns.map((column) => formatReportCell(row, column));
     height += rowHeight(doc, widths, cells) + (row.double ? 3 : 0);
   }
@@ -127,7 +131,7 @@ function drawSection(doc, section, startY) {
   for (const row of section.rows) {
     const cells = section.columns.map((column) => formatReportCell(row, column));
     doc
-      .font(row.emphasis ? 'Helvetica-Bold' : 'Helvetica')
+      .font(boldRow(row) ? 'Helvetica-Bold' : 'Helvetica')
       .fontSize(REPORT_BODY_SIZE)
       .fillColor(INK);
     const height = rowHeight(doc, widths, cells);
@@ -136,12 +140,12 @@ function drawSection(doc, section, startY) {
       y = REPORT_MARGIN.top;
       if (!section.plain) y = drawTableHeader(doc, section, widths, y);
       doc
-        .font(row.emphasis ? 'Helvetica-Bold' : 'Helvetica')
+        .font(boldRow(row) ? 'Helvetica-Bold' : 'Helvetica')
         .fontSize(REPORT_BODY_SIZE)
         .fillColor(INK);
     }
     if (row.emphasis) rule(doc, y, 1);
-    drawCells(doc, section.columns, widths, cells, y, row.indent ? 12 : 0);
+    drawCells(doc, section.columns, widths, cells, y, indentOf(row));
     y += height;
     if (row.double) {
       rule(doc, y, 0.75);
@@ -218,7 +222,12 @@ function drawFooters(doc, meta) {
 }
 
 /** A financial report: same figures as the screen, in statement form. */
-export function reportPdf(table, meta) {
+export function reportPdf(fullTable, meta) {
+  // Some sections only help on screen, such as the cash flow summary that repeats the closing.
+  const table = {
+    ...fullTable,
+    sections: fullTable.sections.filter((section) => !section.screen_only),
+  };
   const widest = Math.max(...table.sections.map((section) => section.columns.length));
   const doc = new PDFDocument({
     size: 'A4',
