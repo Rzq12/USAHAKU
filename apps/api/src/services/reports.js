@@ -4,7 +4,7 @@ import * as reports from '../db/reports.js';
 import { addDays, daysBetween } from '../lib/dates.js';
 import { formatDateLong, formatPrintedAt } from '../lib/format.js';
 import { toCsv } from '../lib/csv.js';
-import { reportPdf } from '../lib/pdf.js';
+import { reportPdf, reportsPdf } from '../lib/pdf.js';
 import { formatQty } from '../lib/money.js';
 
 const money = (key, label) => ({ key, label, numeric: true, money: true });
@@ -26,65 +26,116 @@ async function profitLossFigures(businessId, from, to) {
   const grossProfit = sales.revenue - sales.cogs;
   const operatingTotal = sum(operating);
   const otherExpenseTotal = sum(otherExpense);
+  const operatingProfit = grossProfit - operatingTotal;
   return {
     revenue: sales.revenue,
     cogs: sales.cogs,
     gross_profit: grossProfit,
     operating,
     operating_total: operatingTotal,
+    operating_profit: operatingProfit,
     other_income: other.amount,
     other_expense: otherExpense,
     other_expense_total: otherExpenseTotal,
-    net_profit: grossProfit - operatingTotal + other.amount - otherExpenseTotal,
+    net_profit: operatingProfit + other.amount - otherExpenseTotal,
     has_data: sales.sale_count > 0 || expenses.length > 0 || other.line_count > 0,
   };
 }
 
-function plRows(current, previous) {
-  const categoryNames = (group) => {
-    const names = new Map();
-    for (const row of current[group]) names.set(row.name, true);
-    for (const row of previous?.[group] ?? []) names.set(row.name, true);
-    return [...names.keys()];
+/**
+ * Expense categories of one group, each child under its parent, largest first.
+ * Both periods share one list so a category that only spent last period still shows.
+ */
+function expenseGroups(current, previous, group) {
+  const groups = new Map();
+  const collect = (figures, key) => {
+    for (const row of figures?.[group] ?? []) {
+      const groupName = row.parent_name ?? row.name;
+      if (!groups.has(groupName)) groups.set(groupName, new Map());
+      const lines = groups.get(groupName);
+      const line = lines.get(row.name) ?? { name: row.name, current: 0, previous: 0 };
+      line[key] += row.amount;
+      lines.set(row.name, line);
+    }
   };
-  const amountOf = (figures, group, name) =>
-    figures?.[group].find((row) => row.name === name)?.amount ?? 0;
+  collect(current, 'current');
+  collect(previous, 'previous');
+  const total = (lines, key) => lines.reduce((sum, line) => sum + line[key], 0);
+  return [...groups.entries()]
+    .map(([name, lines]) => ({
+      name,
+      lines: [...lines.values()].sort((a, b) => b.current - a.current),
+    }))
+    .map((item) => ({
+      ...item,
+      current: total(item.lines, 'current'),
+      previous: total(item.lines, 'previous'),
+    }))
+    .sort((a, b) => b.current - a.current);
+}
 
-  const line = (label, value, previousValue, emphasis = false, indent = false, double = false) => {
-    const row = { label, amount: value, emphasis, indent, double };
+/** Zahir's order: revenue, cost of revenue, gross, operating groups, operating profit, other, net. */
+function plRows(current, previous) {
+  const line = (label, value, previousValue, style = {}) => {
+    const row = { label, amount: value, ...style };
     if (previous) {
       row.previous = previousValue;
       row.change = value - previousValue;
     }
     return row;
   };
+  const heading = (label, indent = 0) => {
+    const row = { label, amount: null, heading: true, indent };
+    if (previous) Object.assign(row, { previous: null, change: null });
+    return row;
+  };
+  const total = (label, figure, style = {}) =>
+    line(label, current[figure], previous?.[figure], { emphasis: true, ...style });
+
+  const groupRows = (group) =>
+    expenseGroups(current, previous, group).flatMap((item) => {
+      const [only] = item.lines;
+      if (item.lines.length === 1 && only.name === item.name) {
+        return [line(item.name, only.current, only.previous, { indent: 1 })];
+      }
+      return [
+        heading(item.name, 1),
+        ...item.lines.map((child) =>
+          line(
+            child.name === item.name ? `${child.name} lainnya` : child.name,
+            child.current,
+            child.previous,
+            {
+              indent: 2,
+            },
+          ),
+        ),
+        line(`Total ${item.name}`, item.current, item.previous, { emphasis: true, indent: 1 }),
+      ];
+    });
+  const otherExpenseRows = groupRows('other_expense');
 
   return [
-    line('Pendapatan penjualan', current.revenue, previous?.revenue),
-    line('Harga pokok penjualan', current.cogs, previous?.cogs),
-    line('Laba kotor', current.gross_profit, previous?.gross_profit, true),
-    ...categoryNames('operating').map((name) =>
-      line(
-        name,
-        amountOf(current, 'operating', name),
-        amountOf(previous, 'operating', name),
-        false,
-        true,
-      ),
-    ),
-    line('Total beban operasional', current.operating_total, previous?.operating_total, true),
+    heading('Pendapatan'),
+    line('Pendapatan penjualan', current.revenue, previous?.revenue, { indent: 1 }),
+    total('Total pendapatan', 'revenue'),
+    heading('Beban atas Pendapatan'),
+    line('Harga pokok penjualan', current.cogs, previous?.cogs, { indent: 1 }),
+    total('Total beban atas pendapatan', 'cogs'),
+    total('Laba kotor', 'gross_profit'),
+    heading('Beban Operasional'),
+    ...groupRows('operating'),
+    total('Total beban operasional', 'operating_total'),
+    total('Laba operasi', 'operating_profit'),
     line('Pendapatan lain', current.other_income, previous?.other_income),
-    ...categoryNames('other_expense').map((name) =>
-      line(
-        name,
-        amountOf(current, 'other_expense', name),
-        amountOf(previous, 'other_expense', name),
-        false,
-        true,
-      ),
-    ),
-    line('Total beban lain', current.other_expense_total, previous?.other_expense_total, true),
-    line('Laba bersih', current.net_profit, previous?.net_profit, true, false, true),
+    ...(otherExpenseRows.length === 0
+      ? []
+      : [
+          heading('Beban Lain'),
+          ...otherExpenseRows,
+          total('Total beban lain', 'other_expense_total'),
+        ]),
+    total('Laba bersih', 'net_profit', { double: true }),
   ];
 }
 
@@ -116,6 +167,7 @@ async function profitLoss(businessId, { from, to, compare }) {
       cogs: current.cogs,
       gross_profit: current.gross_profit,
       operating_expenses: current.operating_total,
+      operating_profit: current.operating_profit,
       other_income: current.other_income,
       other_expenses: current.other_expense_total,
       net_profit: current.net_profit,
@@ -204,6 +256,26 @@ function cashActivitySections(categories) {
   ).map((activity) => cashActivitySection(activity, categories));
 }
 
+/*
+ * Zahir closes with the net change, the opening balance, and the closing balance. Transfers
+ * and excluded transactions move a balance without being receipts or payments, so they
+ * get their own lines here; otherwise opening plus change would not reach the closing.
+ */
+function cashClosingSection(totals) {
+  return {
+    title: 'Perubahan kas',
+    plain: true,
+    columns: LABEL_AMOUNT_COLUMNS,
+    rows: [
+      { label: 'Kenaikan (penurunan) kas', amount: totals.net_cash_flow, emphasis: true },
+      ...lineIfAny('Transfer bersih', totals.transfer_net),
+      ...lineIfAny('Transaksi dikecualikan', totals.excluded_net),
+      { label: 'Saldo awal kas dan bank', amount: totals.opening },
+      { label: 'Saldo akhir kas dan bank', amount: totals.closing, emphasis: true, double: true },
+    ],
+  };
+}
+
 function cashFlowNotes(totals, accountId) {
   const notes = [
     'Transfer antar akun tidak dihitung sebagai penerimaan atau pengeluaran.',
@@ -257,10 +329,13 @@ async function cashFlow(businessId, { from, to, account_id }) {
       {
         title: 'Ringkasan',
         plain: true,
+        // The PDF reads top to bottom like Zahir and ends with the closing block instead.
+        screen_only: true,
         columns: LABEL_AMOUNT_COLUMNS,
         rows: cashSummaryRows(totals, categories),
       },
       ...cashActivitySections(categories),
+      cashClosingSection(totals),
       {
         title: 'Rincian per akun',
         columns: [
@@ -351,7 +426,151 @@ async function expenseByCategory(businessId, { from, to }) {
   };
 }
 
+/*
+ * usahaku keeps single-entry books, so the balance sheet is derived, not read from a ledger.
+ * Financing categories carry no loan or equity flag: a name with "pinjam" or "angsuran"
+ * is a loan, other financing receipts are capital, other financing payments are drawings.
+ */
+const LOAN_NAME = /pinjam|angsuran/i;
+const EARLIEST_DATE = '1900-01-01';
+
+function nonOperatingTotals(rows) {
+  const sum = (filter) => rows.filter(filter).reduce((total, row) => total + row.amount, 0);
+  const financing = (row) => row.activity === 'financing';
+  const isLoan = (row) => financing(row) && LOAN_NAME.test(row.name);
+  return {
+    fixed_assets:
+      sum((row) => row.activity === 'investing' && row.type === 'expense') -
+      sum((row) => row.activity === 'investing' && row.type === 'income'),
+    loans:
+      sum((row) => isLoan(row) && row.type === 'income') -
+      sum((row) => isLoan(row) && row.type === 'expense'),
+    paid_in_capital: sum((row) => financing(row) && !isLoan(row) && row.type === 'income'),
+    drawings: 0 - sum((row) => financing(row) && !isLoan(row) && row.type === 'expense'),
+    has_financing: rows.some(financing),
+  };
+}
+
+function balanceSheetNotes(totals, year, hasFinancing) {
+  const notes = [
+    'Persediaan dinilai dengan harga modal produk saat ini.',
+    `Laba Tahun Berjalan dihitung sejak 1 Januari ${year}. Laba sebelum tanggal itu masuk Laba Ditahan.`,
+  ];
+  if (totals.fixed_assets !== 0) {
+    notes.push('Harta tetap dicatat sebesar harga beli, tanpa penyusutan.');
+  }
+  if (hasFinancing) {
+    notes.push(
+      'Kategori pendanaan yang namanya memuat "pinjam" atau "angsuran" dihitung sebagai Utang Jangka Panjang. Pemasukan pendanaan lain dihitung sebagai Modal Disetor, pengeluarannya sebagai Prive.',
+    );
+  }
+  if (totals.adjustment !== 0) {
+    notes.push(
+      'Penyesuaian Saldo: selisih antara harta dan sumbernya karena pencatatan satu sisi, misalnya harga modal produk yang diubah, stok masuk tanpa pengeluaran, penjualan produk yang stoknya tidak dilacak, atau transaksi yang dikecualikan dari laporan.',
+    );
+  }
+  return notes;
+}
+
+/** Rows whose amount is zero are left out, except the ones every balance sheet carries. */
+const lineIfAny = (label, amount, extra = {}) =>
+  amount === 0 ? [] : [{ label, amount, ...extra }];
+
+function balanceSheetSections(accounts, totals) {
+  const section = (title, rows) => ({ title, plain: true, columns: LABEL_AMOUNT_COLUMNS, rows });
+  const total = (label, amount, double = false) => ({ label, amount, emphasis: true, double });
+  return [
+    section('Harta', [
+      ...accounts
+        .filter((account) => account.balance !== 0)
+        .map((account) => ({ label: account.name, amount: account.balance, indent: true })),
+      total('Total Kas dan Bank', totals.cash),
+      ...lineIfAny('Piutang Usaha', totals.receivables),
+      ...lineIfAny('Persediaan Barang', totals.inventory),
+      total('Total Harta Lancar', totals.current_assets),
+      ...(totals.fixed_assets === 0
+        ? []
+        : [
+            { label: 'Harta Tetap Berwujud', amount: totals.fixed_assets, indent: true },
+            total('Total Harta Tetap', totals.fixed_assets),
+          ]),
+      total('Total Harta', totals.total_assets, true),
+    ]),
+    section('Kewajiban', [
+      ...lineIfAny('Utang Usaha', totals.payables),
+      ...lineIfAny('Utang Jangka Panjang', totals.loans),
+      total('Total Kewajiban', totals.total_liabilities),
+    ]),
+    section('Modal', [
+      { label: 'Modal Awal', amount: totals.opening_equity },
+      ...lineIfAny('Modal Disetor', totals.paid_in_capital),
+      ...lineIfAny('Prive', totals.drawings),
+      { label: 'Laba Ditahan', amount: totals.retained_earnings },
+      { label: 'Laba Tahun Berjalan', amount: totals.current_year_profit },
+      ...lineIfAny('Penyesuaian Saldo', totals.adjustment),
+      total('Total Modal', totals.total_equity),
+      total('Total Kewajiban dan Modal', totals.total_liabilities_and_equity, true),
+    ]),
+  ];
+}
+
+/** Position on one date (`to`). Profit splits at 1 January of that date's year, like Zahir. */
+async function balanceSheet(businessId, { to }) {
+  const year = Number(to.slice(0, 4));
+  const [figures, retained, currentYear] = await Promise.all([
+    reports.balanceSheetFigures(pool, businessId, to),
+    profitLossFigures(businessId, EARLIEST_DATE, `${year - 1}-12-31`),
+    profitLossFigures(businessId, `${year}-01-01`, to),
+  ]);
+  const other = nonOperatingTotals(figures.non_operating);
+  const cash = figures.accounts.reduce((sum, account) => sum + account.balance, 0);
+  const currentAssets = cash + figures.receivables + figures.inventory;
+  const totalAssets = currentAssets + other.fixed_assets;
+  const totalLiabilities = figures.payables + other.loans;
+  const openingEquity =
+    figures.accounts.reduce((sum, account) => sum + account.opening_balance, 0) +
+    figures.opening_stock;
+  const equityBeforeAdjustment =
+    openingEquity +
+    other.paid_in_capital +
+    other.drawings +
+    retained.net_profit +
+    currentYear.net_profit;
+  const adjustment = totalAssets - totalLiabilities - equityBeforeAdjustment;
+  const totalEquity = equityBeforeAdjustment + adjustment;
+  const totals = {
+    cash,
+    receivables: figures.receivables,
+    inventory: figures.inventory,
+    current_assets: currentAssets,
+    fixed_assets: other.fixed_assets,
+    total_assets: totalAssets,
+    payables: figures.payables,
+    loans: other.loans,
+    total_liabilities: totalLiabilities,
+    opening_equity: openingEquity,
+    paid_in_capital: other.paid_in_capital,
+    drawings: other.drawings,
+    retained_earnings: retained.net_profit,
+    current_year_profit: currentYear.net_profit,
+    adjustment,
+    total_equity: totalEquity,
+    total_liabilities_and_equity: totalLiabilities + totalEquity,
+  };
+  return {
+    title: 'Neraca',
+    subtitle: `Per ${formatDateLong(to)}`,
+    basis: ACCRUAL_BASIS,
+    as_of: to,
+    sections: balanceSheetSections(figures.accounts, totals),
+    notes: balanceSheetNotes(totals, year, other.has_financing),
+    totals,
+    is_empty: Object.values(totals).every((value) => value === 0),
+  };
+}
+
 export const REPORTS = {
+  'balance-sheet': balanceSheet,
   'profit-loss': profitLoss,
   'cash-flow': cashFlow,
   'sales-by-product': salesByProduct,
@@ -388,7 +607,9 @@ const XLSX_HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: '
 
 function addXlsxRow(sheet, section, row) {
   const added = sheet.addRow(section.columns.map((column) => row[column.key] ?? null));
-  if (row.emphasis) added.font = { bold: true };
+  if (row.emphasis || row.heading) added.font = { bold: true };
+  const indent = row.indent === true ? 1 : row.indent || 0;
+  if (indent) added.getCell(1).alignment = { indent };
   section.columns.forEach((column, index) => {
     const cell = added.getCell(index + 1);
     if (column.money) cell.numFmt = XLSX_ACCOUNTING;
@@ -402,9 +623,11 @@ function addXlsxRow(sheet, section, row) {
   });
 }
 
-async function xlsxFile(table, baseName, meta) {
-  const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet(table.title.slice(0, 31));
+const XLSX_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+/** One report on its own sheet; the sheet name defaults to the report title. */
+function writeXlsxSheet(workbook, table, meta, sheetName = table.title) {
+  const sheet = workbook.addWorksheet(sheetName.slice(0, 31));
   sheet.addRow([meta.businessName]).font = { bold: true };
   sheet.addRow([table.title]).font = { bold: true, size: 14 };
   sheet.addRow([table.subtitle]);
@@ -431,9 +654,14 @@ async function xlsxFile(table, baseName, meta) {
   for (let index = 1; index <= columnCount; index += 1) {
     sheet.getColumn(index).width = index === 1 ? 34 : 18;
   }
+}
+
+async function xlsxFile(table, baseName, meta) {
+  const workbook = new ExcelJS.Workbook();
+  writeXlsxSheet(workbook, table, meta);
   return {
     filename: `${baseName}.xlsx`,
-    contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    contentType: XLSX_CONTENT_TYPE,
     buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
   };
 }
@@ -448,13 +676,59 @@ async function pdfFile(table, baseName, meta) {
 
 const EXPORTERS = { csv: csvFile, xlsx: xlsxFile, pdf: pdfFile };
 
+const exportMeta = (actor) => ({
+  businessName: actor.business_name,
+  printedBy: actor.name,
+  printedAt: formatPrintedAt(new Date()),
+});
+
+/*
+ * The three statements for one range in one file, so they reconcile: the balance sheet
+ * is as of `to`, profit and cash flow cover `from` to `to`.
+ */
+const STATEMENTS = [
+  { name: 'balance-sheet', sheet: 'Neraca' },
+  { name: 'profit-loss', sheet: 'Laba Rugi' },
+  { name: 'cash-flow', sheet: 'Arus Kas' },
+];
+
+export async function exportFinancialStatements(actor, { from, to, format }) {
+  const tables = await Promise.all(
+    STATEMENTS.map((statement) => runReport(actor, statement.name, { from, to })),
+  );
+  const [balance] = tables;
+  if (from !== `${to.slice(0, 4)}-01-01`) {
+    balance.notes.push(
+      `Periode laporan ini dimulai ${formatDateLong(from)}, jadi Laba Tahun Berjalan di neraca (sejak 1 Januari) bisa berbeda dengan laba bersih di laporan laba rugi.`,
+    );
+  }
+  const meta = exportMeta(actor);
+  const baseName = `laporan-keuangan_${from}_${to}`;
+  if (format === 'pdf') {
+    return {
+      filename: `${baseName}.pdf`,
+      contentType: 'application/pdf',
+      buffer: await reportsPdf(
+        tables.map((table) => ({ ...table, sections: sectionsOf(table) })),
+        meta,
+        'Laporan Keuangan',
+      ),
+    };
+  }
+  const workbook = new ExcelJS.Workbook();
+  tables.forEach((table, index) => writeXlsxSheet(workbook, table, meta, STATEMENTS[index].sheet));
+  return {
+    filename: `${baseName}.xlsx`,
+    contentType: XLSX_CONTENT_TYPE,
+    buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+  };
+}
+
 /** The file is built from the same table object the screen shows, so totals cannot differ. */
 export async function exportReport(actor, name, query) {
   const table = await runReport(actor, name, query);
-  const meta = {
-    businessName: actor.business_name,
-    printedBy: actor.name,
-    printedAt: formatPrintedAt(new Date()),
-  };
-  return EXPORTERS[query.format](table, `${name}_${query.from}_${query.to}`, meta);
+  const meta = exportMeta(actor);
+  // A balance sheet is one date, so its file is named by that date alone.
+  const period = table.as_of ?? `${query.from}_${query.to}`;
+  return EXPORTERS[query.format](table, `${name}_${period}`, meta);
 }

@@ -31,7 +31,21 @@ const GUIDES = [
       'Laba kotor adalah pendapatan dikurangi harga modal barang yang terjual.',
       'Laba bersih adalah laba kotor dikurangi beban, ditambah pendapatan lain.',
       'Transfer dan pembelian stok bukan laba atau beban.',
-      'Modal, pinjaman, dan pembelian peralatan hanya tampil di arus kas, bukan di laba rugi.',
+      'Modal, pinjaman, dan pembelian peralatan tampil di arus kas dan neraca, bukan di laba rugi.',
+    ],
+  },
+  {
+    tone: 'bg-tint-sky',
+    title: 'Membaca neraca',
+    to: '/laporan',
+    link: 'Buka neraca',
+    steps: [
+      'Neraca menunjukkan posisi usaha pada satu tanggal: harta di satu sisi, kewajiban dan modal di sisi lain.',
+      'Harta adalah uang di kas dan bank, persediaan barang, dan peralatan.',
+      'Kewajiban adalah utang dan pinjaman yang belum dibayar.',
+      'Modal adalah saldo awal, setoran pemilik, dan laba, dikurangi prive.',
+      'Total harta selalu sama dengan total kewajiban dan modal.',
+      'Penyesuaian Saldo muncul kalau ada catatan yang tidak lengkap, misalnya harga modal produk diubah atau stok masuk tanpa dicatat pengeluarannya. Kalau nilainya besar, periksa catatan itu.',
     ],
   },
 ];
@@ -39,7 +53,7 @@ const GUIDES = [
 export default function Guide() {
   return (
     <Page narrow>
-      <PageHeader title="Panduan" description="Tiga hal yang paling sering dibutuhkan." />
+      <PageHeader title="Panduan" description="Hal yang paling sering dibutuhkan." />
       <div className="space-y-4">
         {GUIDES.map((guide) => (
           <section

@@ -48,11 +48,13 @@ export async function otherIncome(q, businessId, from, to) {
 /** Per category, recognized expenses (BR-010): inventory purchases are in their own group. */
 export async function expensesByCategory(q, businessId, from, to) {
   const { rows } = await q.query(
-    `SELECT c.id AS category_id, c.name, c.pl_group, SUM(x.amount) AS amount
+    `SELECT c.id AS category_id, c.name, c.pl_group, parent.name AS parent_name,
+       SUM(x.amount) AS amount
      FROM (${EXPENSE_LINES}) x
      JOIN categories c ON c.id = x.category_id
+     LEFT JOIN categories parent ON parent.id = c.parent_id
      WHERE c.cash_activity = 'operating'
-     GROUP BY c.id, c.name, c.pl_group
+     GROUP BY c.id, c.name, c.pl_group, parent.name
      ORDER BY amount DESC`,
     [businessId, from, to],
   );
@@ -119,6 +121,90 @@ export async function cashFlowByCategory(q, businessId, from, to, accountId) {
     [businessId, from, to, accountId ?? null],
   );
   return rows;
+}
+
+/*
+ * Balance sheet inputs, all cumulative up to one date. A sale's stock movements take the
+ * sale date, so a backdated sale leaves stock on the same day its cost reaches profit.
+ * Other movements only have created_at, read in Jakarta time.
+ */
+const STOCK_ON_DATE = `
+  SELECT m.product_id, m.movement_type, m.qty
+  FROM stock_movements m
+  LEFT JOIN sales s ON m.movement_type IN ('sale', 'void') AND s.id = m.ref_id
+  WHERE m.business_id = $1
+    AND COALESCE(s.sale_date, (m.created_at AT TIME ZONE 'Asia/Jakarta')::date) <= $2`;
+
+export async function balanceSheetFigures(q, businessId, asOf) {
+  const [accounts, debts, stock, nonOperating] = await Promise.all([
+    q.query(
+      `SELECT a.name, a.opening_balance,
+         a.opening_balance + COALESCE((
+           SELECT SUM(CASE WHEN t.type = 'income' THEN t.amount
+                           WHEN t.type = 'expense' THEN -t.amount
+                           WHEN t.transfer_account_id = a.id THEN t.amount ELSE -t.amount END)
+           FROM transactions t
+           WHERE t.business_id = a.business_id AND t.deleted_at IS NULL
+             AND (t.account_id = a.id OR t.transfer_account_id = a.id) AND t.occurred_on <= $2
+         ), 0) AS balance
+       FROM accounts a
+       WHERE a.business_id = $1
+       ORDER BY a.created_at`,
+      [businessId, asOf],
+    ),
+    q.query(
+      `SELECT d.type, COALESCE(SUM(d.amount - COALESCE((
+           SELECT SUM(p.amount) FROM debt_payments p
+           WHERE p.debt_id = d.id AND NOT p.is_void AND p.paid_on <= $2
+         ), 0)), 0) AS open_amount
+       FROM debts d
+       WHERE d.business_id = $1 AND d.status <> 'void' AND d.issue_date <= $2
+       GROUP BY d.type`,
+      [businessId, asOf],
+    ),
+    q.query(
+      `SELECT COALESCE(SUM(ROUND(x.qty * p.cost_price)), 0) AS inventory,
+         COALESCE(SUM(ROUND(COALESCE(x.opening_qty, 0) * p.cost_price)), 0) AS opening_stock
+       FROM (
+         SELECT product_id, SUM(qty) AS qty,
+           SUM(qty) FILTER (WHERE movement_type = 'opening') AS opening_qty
+         FROM (${STOCK_ON_DATE}) m
+         GROUP BY product_id
+       ) x
+       JOIN products p ON p.id = x.product_id`,
+      [businessId, asOf],
+    ),
+    // Investing and financing amounts. A payable bill counts when issued; paying it later
+    // only settles the debt, so payable payments are left out here.
+    q.query(
+      `SELECT c.cash_activity AS activity, c.type, c.name, SUM(x.amount) AS amount
+       FROM (
+         SELECT t.category_id, t.amount
+         FROM transactions t
+         WHERE t.business_id = $1 AND t.type IN ('income', 'expense') AND t.deleted_at IS NULL
+           AND NOT t.is_excluded AND t.source_type <> 'payable_payment' AND t.occurred_on <= $2
+         UNION ALL
+         SELECT d.category_id, d.amount
+         FROM debts d
+         WHERE d.business_id = $1 AND d.type = 'payable' AND d.status <> 'void'
+           AND d.issue_date <= $2
+       ) x
+       JOIN categories c ON c.id = x.category_id
+       WHERE c.cash_activity <> 'operating'
+       GROUP BY c.cash_activity, c.type, c.name
+       ORDER BY c.name`,
+      [businessId, asOf],
+    ),
+  ]);
+  const openDebt = (type) => debts.rows.find((row) => row.type === type)?.open_amount ?? 0;
+  return {
+    accounts: accounts.rows,
+    receivables: openDebt('receivable'),
+    payables: openDebt('payable'),
+    inventory: stock.rows[0].inventory,
+    opening_stock: stock.rows[0].opening_stock,
+    non_operating: nonOperating.rows,
+  };
 }
 
 export async function turnoverByMonth(q, businessId, year) {

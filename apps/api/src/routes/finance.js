@@ -51,6 +51,20 @@ const reportQuery = z
   .and(rangeFields);
 const exportQuery = reportQuery.and(z.object({ format: z.enum(['csv', 'xlsx', 'pdf']) }));
 
+// Registered before '/:name/export' so the package path is not read as a report name.
+const packageQuery = z
+  .object({ from: dateString, to: dateString, format: z.enum(['xlsx', 'pdf']) })
+  .and(rangeFields);
+reportsRouter.get(
+  '/financial-statements/export',
+  handle(async (req, res) => {
+    const file = await withExportTimeout(
+      reports.exportFinancialStatements(req.user, parse(packageQuery, req.query)),
+      'Ekspor terlalu lama. Persempit rentang tanggal.',
+    );
+    sendFile(res, file);
+  }),
+);
 reportsRouter.get(
   '/:name/export',
   handle(async (req, res) => {

@@ -21,6 +21,7 @@ after(stopApi);
 const RANGE = 'from=2026-10-01&to=2026-10-31';
 
 const OPERATING_TITLE = 'Arus kas dari aktivitas operasi';
+const CLOSING_TITLE = 'Perubahan kas';
 
 function sectionNamed(sections, title) {
   return sections.find((section) => section.title === title);
@@ -118,8 +119,9 @@ test('cash flow shows a summary that reconciles opening, net flow, and closing',
   assert.equal(report.basis, 'Basis kas, dalam Rupiah');
   assert.deepEqual(
     report.sections.map((section) => section.title),
-    ['Ringkasan', OPERATING_TITLE, 'Rincian per akun'],
+    ['Ringkasan', OPERATING_TITLE, CLOSING_TITLE, 'Rincian per akun'],
   );
+  assert.equal(report.sections[0].screen_only, true, 'the PDF ends with the closing block instead');
 
   const [summary] = report.sections;
   const opening = amountOf(summary, 'Saldo awal kas dan bank');
@@ -130,6 +132,145 @@ test('cash flow shows a summary that reconciles opening, net flow, and closing',
   assert.equal(net, -300_000);
   assert.equal(amountOf(summary, 'Saldo akhir kas dan bank'), opening + net);
   assert.equal(report.totals.net_cash_flow, -300_000);
+});
+
+test('cash flow closes like Zahir: net change, opening balance, closing balance', async () => {
+  const business = await businessWithCashMovements();
+  const { sections } = (await business.owner.get(`/reports/cash-flow?${RANGE}`)).body;
+  const closing = sectionNamed(sections, CLOSING_TITLE);
+  assert.deepEqual(
+    closing.rows.map((row) => [row.label, row.amount]),
+    [
+      ['Kenaikan (penurunan) kas', -300_000],
+      ['Saldo awal kas dan bank', 1_000_000],
+      ['Saldo akhir kas dan bank', 700_000],
+    ],
+  );
+  assert.equal(closing.rows.at(-1).double, true);
+});
+
+test('a PDF leaves out sections meant only for the screen', async () => {
+  const meta = {
+    businessName: 'Toko Uji',
+    printedBy: 'Pemilik',
+    printedAt: '04 Nov 2026, 10.00 WIB',
+  };
+  const columns = [
+    { key: 'label', label: 'Keterangan' },
+    { key: 'amount', label: 'Jumlah', numeric: true, money: true },
+  ];
+  const long = (extra) => ({
+    title: 'Panjang',
+    columns,
+    rows: Array.from({ length: 120 }, (_, index) => ({ label: `Baris ${index}`, amount: index })),
+    ...extra,
+  });
+  const pagesFor = async (section) => {
+    const buffer = await reportPdf(
+      { title: 'Uji', subtitle: 'Uji', basis: 'Dalam Rupiah', sections: [section] },
+      meta,
+    );
+    return buffer.toString('latin1').match(/\/Type \/Page\b/g).length;
+  };
+  assert.ok((await pagesFor(long({}))) > 1);
+  assert.equal(await pagesFor(long({ screen_only: true })), 1);
+});
+
+async function createCategory(business, body) {
+  const response = await business.owner.post('/categories', { type: 'expense', ...body });
+  assert.equal(response.status, 201, JSON.stringify(response.body));
+  return response.body;
+}
+
+test('profit and loss groups expenses under their parent and shows operating profit', async () => {
+  const business = await businessWithCashMovements();
+  const admin = await createCategory(business, {
+    name: 'Beban Administrasi dan Umum',
+    pl_group: 'operating_expense',
+  });
+  const phone = await createCategory(business, {
+    name: 'Telepon',
+    parent_id: admin.id,
+    pl_group: 'operating_expense',
+  });
+  const power = await createCategory(business, {
+    name: 'Listrik Kantor',
+    parent_id: admin.id,
+    pl_group: 'operating_expense',
+  });
+  const spend = (category, amount, date) =>
+    business.owner.post('/transactions', {
+      type: 'expense',
+      amount,
+      account_id: business.kas.id,
+      category_id: category.id,
+      occurred_on: date,
+    });
+  await spend(phone, 250_000, '2026-10-12');
+  await spend(power, 100_000, '2026-10-13');
+  await spend(phone, 50_000, '2026-09-15');
+
+  const pl = (await business.owner.get(`/reports/profit-loss?${RANGE}&compare=true`)).body;
+  assert.deepEqual(
+    pl.rows.map((row) => row.label),
+    [
+      'Pendapatan',
+      'Pendapatan penjualan',
+      'Total pendapatan',
+      'Beban atas Pendapatan',
+      'Harga pokok penjualan',
+      'Total beban atas pendapatan',
+      'Laba kotor',
+      'Beban Operasional',
+      'Sewa',
+      'Beban Administrasi dan Umum',
+      'Telepon',
+      'Listrik Kantor',
+      'Total Beban Administrasi dan Umum',
+      'Total beban operasional',
+      'Laba operasi',
+      'Pendapatan lain',
+      'Laba bersih',
+    ],
+  );
+  const row = (label) => pl.rows.find((item) => item.label === label);
+  assert.equal(row('Beban Operasional').heading, true);
+  assert.equal(row('Beban Operasional').amount, null);
+  assert.equal(row('Beban Administrasi dan Umum').heading, true);
+  assert.equal(row('Telepon').indent, 2);
+  assert.equal(row('Telepon').amount, 250_000);
+  assert.equal(row('Telepon').previous, 50_000);
+  assert.equal(row('Telepon').change, 200_000);
+  assert.equal(row('Sewa').indent, 1);
+  assert.equal(row('Total Beban Administrasi dan Umum').amount, 350_000);
+  assert.equal(row('Total Beban Administrasi dan Umum').previous, 50_000);
+  assert.equal(row('Total beban operasional').amount, 850_000);
+  assert.equal(row('Laba operasi').amount, -650_000);
+  assert.equal(row('Laba bersih').amount, -650_000);
+  assert.equal(pl.totals.operating_profit, -650_000);
+  assert.equal(pl.totals.operating_expenses, 850_000, 'grouping leaves totals unchanged');
+});
+
+test('profit and loss lists other expenses under their own heading when there are any', async () => {
+  const business = await businessWithCashMovements();
+  const fines = await createCategory(business, { name: 'Denda', pl_group: 'other_expense' });
+  await business.owner.post('/transactions', {
+    type: 'expense',
+    amount: 20_000,
+    account_id: business.kas.id,
+    category_id: fines.id,
+    occurred_on: '2026-10-14',
+  });
+  const pl = (await business.owner.get(`/reports/profit-loss?${RANGE}`)).body;
+  const labels = pl.rows.map((row) => row.label);
+  assert.deepEqual(labels.slice(labels.indexOf('Pendapatan lain')), [
+    'Pendapatan lain',
+    'Beban Lain',
+    'Denda',
+    'Total beban lain',
+    'Laba bersih',
+  ]);
+  assert.equal(pl.totals.net_profit, 200_000 - 500_000 - 20_000);
 });
 
 test('cash flow keeps receipts and payments apart, each with its own total', async () => {
@@ -314,6 +455,11 @@ test('the excluded column and its note appear only when something is excluded', 
   const summary = excluded.sections[0];
   assert.equal(amountOf(summary, 'Transaksi dikecualikan'), -500_000);
   assert.equal(amountOf(summary, 'Saldo akhir kas dan bank'), 700_000);
+
+  const closing = sectionNamed(excluded.sections, CLOSING_TITLE);
+  assert.equal(amountOf(closing, 'Kenaikan (penurunan) kas'), 200_000);
+  assert.equal(amountOf(closing, 'Transaksi dikecualikan'), -500_000);
+  assert.equal(amountOf(closing, 'Saldo akhir kas dan bank'), 700_000);
 });
 
 test('with one account selected, a transfer shows in the reconciliation', async () => {
@@ -330,6 +476,9 @@ test('with one account selected, a transfer shows in the reconciliation', async 
   assert.equal(amountOf(sections[0], 'Transfer bersih'), -100_000);
   assert.equal(amountOf(sections[0], 'Saldo akhir kas dan bank'), 600_000);
   assert.ok(notes.some((note) => note.includes('satu akun')));
+  const closing = sectionNamed(sections, CLOSING_TITLE);
+  assert.equal(amountOf(closing, 'Transfer bersih'), -100_000);
+  assert.equal(amountOf(closing, 'Saldo akhir kas dan bank'), 600_000);
 
   const all = (await business.owner.get(`/reports/cash-flow?${RANGE}`)).body;
   assert.equal(amountOf(all.sections[0], 'Transfer bersih'), undefined, 'nets to zero overall');
@@ -367,7 +516,13 @@ test('CSV export lists each section under its title', async () => {
 
 test('every report exports a PDF, and empty ranges still work', async () => {
   const business = await businessWithCashMovements();
-  const names = ['profit-loss', 'cash-flow', 'sales-by-product', 'expense-by-category'];
+  const names = [
+    'balance-sheet',
+    'profit-loss',
+    'cash-flow',
+    'sales-by-product',
+    'expense-by-category',
+  ];
   for (const name of names) {
     for (const client of [business.owner]) {
       const file = await client.get(`/reports/${name}/export?${RANGE}&format=pdf`);
