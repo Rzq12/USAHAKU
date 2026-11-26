@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { handle, pageResult, uploadSingle } from '../lib/http.js';
+import { handle, idempotent, pageResult, uploadSingle } from '../lib/http.js';
 import {
   amount,
   dateString,
@@ -50,6 +50,7 @@ transactionsRouter.get(
 );
 transactionsRouter.post(
   '/',
+  idempotent(),
   handle(async (req, res) =>
     res
       .status(201)

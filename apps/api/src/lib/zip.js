@@ -1,4 +1,8 @@
-import { deflateRawSync } from 'node:zlib';
+import zlib from 'node:zlib';
+import { promisify } from 'node:util';
+
+// Compression runs on the libuv threadpool, so a large export does not freeze other requests.
+const deflateRaw = promisify(zlib.deflateRaw);
 
 const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
   let c = n;
@@ -6,17 +10,20 @@ const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
   return c >>> 0;
 });
 
-function crc32(buffer) {
+function crc32InJs(buffer) {
   let crc = 0xffffffff;
   for (const byte of buffer) crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
   return (crc ^ 0xffffffff) >>> 0;
 }
 
+// Node 22.2+ has a native crc32; older runtimes fall back to the table loop.
+const crc32 = typeof zlib.crc32 === 'function' ? (buffer) => zlib.crc32(buffer) : crc32InJs;
+
 const UTF8_FLAG = 0x0800;
 const DEFLATE = 8;
 
 /** Builds a ZIP archive from { name, content } entries using Node's built-in deflate. */
-export function createZip(entries) {
+export async function createZip(entries) {
   const localParts = [];
   const centralParts = [];
   let offset = 0;
@@ -24,7 +31,7 @@ export function createZip(entries) {
   for (const entry of entries) {
     const name = Buffer.from(entry.name, 'utf8');
     const data = Buffer.from(entry.content, 'utf8');
-    const compressed = deflateRawSync(data);
+    const compressed = await deflateRaw(data);
     const crc = crc32(data);
 
     const local = Buffer.alloc(30);

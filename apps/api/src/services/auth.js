@@ -41,6 +41,10 @@ function publicUser(user) {
 
 export async function register(body) {
   assertPasswordAllowed(body.password, body.email);
+  // Cheap check first, so a taken email does not cost a hash; the unique index still decides races.
+  if (await users.findUserByEmail(pool, body.email)) {
+    throw fieldError(EMAIL_TAKEN.users_email_key.field, EMAIL_TAKEN.users_email_key.message);
+  }
   const passwordHash = await hashPassword(body.password);
   try {
     return await withTx(async (client) => {
@@ -76,13 +80,15 @@ function remainingLockMinutes(lockedUntil) {
   return Math.ceil((new Date(lockedUntil).getTime() - Date.now()) / 60_000);
 }
 
+/** Counts a wrong password atomically in the database; returns the lock time once reached. */
 async function recordFailure(user) {
-  const lockExpired = user.locked_until && new Date(user.locked_until) <= new Date();
-  const count = (lockExpired ? 0 : user.failed_login_count) + 1;
-  const lockedUntil =
-    count >= MAX_FAILED_LOGINS ? new Date(Date.now() + LOCK_MINUTES * 60_000) : null;
-  await withTx(async (client) => {
-    await users.recordLoginFailure(client, user.id, count, lockedUntil);
+  return withTx(async (client) => {
+    const lockedUntil = await users.recordLoginFailure(
+      client,
+      user.id,
+      MAX_FAILED_LOGINS,
+      LOCK_MINUTES,
+    );
     await writeAudit(client, {
       businessId: user.business_id,
       userId: user.id,
@@ -90,8 +96,22 @@ async function recordFailure(user) {
       entityType: 'user',
       entityId: user.id,
     });
+    return lockedUntil;
   });
-  return lockedUntil;
+}
+
+function isLocked(user) {
+  return user.locked_until && new Date(user.locked_until) > new Date();
+}
+
+/*
+ * A real argon2id hash of a random value, checked when the email is unknown, so a wrong email
+ * takes as long as a wrong password and response time does not reveal which emails exist.
+ */
+let dummyHash;
+async function spendVerifyTime(password) {
+  dummyHash ??= await hashPassword(randomBytes(16).toString('hex'));
+  await argon2.verify(dummyHash, password);
 }
 
 function lockedError(minutes) {
@@ -104,9 +124,12 @@ function lockedError(minutes) {
 
 export async function login({ email, password }) {
   const user = await users.findUserByEmail(pool, email);
-  if (!user || !user.is_active) throw unauthorized(WRONG_CREDENTIALS, 'WRONG_CREDENTIALS');
+  if (!user || !user.is_active) {
+    await spendVerifyTime(password);
+    throw unauthorized(WRONG_CREDENTIALS, 'WRONG_CREDENTIALS');
+  }
 
-  if (user.locked_until && new Date(user.locked_until) > new Date()) {
+  if (isLocked(user)) {
     throw lockedError(remainingLockMinutes(user.locked_until));
   }
 
@@ -136,8 +159,15 @@ export async function logout(token) {
 
 export async function changePassword(actor, { current_password, new_password }) {
   const user = await users.findUserWithHash(pool, actor.id);
+  // The current-password check is a password guess too, so it shares the sign-in lockout.
+  if (isLocked(user)) throw lockedError(remainingLockMinutes(user.locked_until));
   if (!(await argon2.verify(user.password_hash, current_password))) {
+    const lockedUntil = await recordFailure(user);
+    if (lockedUntil) throw lockedError(LOCK_MINUTES);
     throw fieldError('current_password', 'Kata sandi saat ini salah.');
+  }
+  if (await argon2.verify(user.password_hash, new_password)) {
+    throw fieldError('new_password', 'Kata sandi baru harus berbeda dari yang lama.');
   }
   assertPasswordAllowed(new_password, user.email);
   const passwordHash = await hashPassword(new_password);

@@ -2,9 +2,9 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { handle } from '../lib/http.js';
-import { AppError } from '../lib/errors.js';
+import { tooManyRequests } from '../lib/errors.js';
 import { parse } from '../lib/schemas.js';
-import { perMinuteLimiter } from '../middleware/common.js';
+import { perMinuteLimiter, secondsToNextMinute } from '../middleware/common.js';
 import { requireAuth, SESSION_COOKIE } from '../middleware/auth.js';
 import * as auth from '../services/auth.js';
 
@@ -36,11 +36,20 @@ function setSessionCookie(res, token) {
 }
 
 const allowLoginAttempt = perMinuteLimiter(config.loginRateLimitPerMinute);
+const allowRegister = perMinuteLimiter(config.registerRateLimitPerMinute);
+const allowRegisterGlobally = perMinuteLimiter(config.registerGlobalRateLimitPerMinute);
+const allowPasswordCheck = perMinuteLimiter(config.loginRateLimitPerMinute);
+
+const TOO_MANY = 'Terlalu banyak percobaan. Tunggu satu menit.';
+const rateLimited = () => tooManyRequests(TOO_MANY, secondsToNextMinute());
 
 authRouter.post(
   '/register',
   handle(async (req, res) => {
-    const { token, user } = await auth.register(parse(registerSchema, req.body));
+    const body = parse(registerSchema, req.body);
+    // Checked before hashing, so a flood of sign-ups cannot occupy the shared hashing threads.
+    if (!allowRegister(`ip:${req.ip}`) || !allowRegisterGlobally('all')) throw rateLimited();
+    const { token, user } = await auth.register(body);
     setSessionCookie(res, token);
     res.status(201).json({ user, message: 'Akun berhasil dibuat. Selamat datang di usahaku.' });
   }),
@@ -51,7 +60,7 @@ authRouter.post(
   handle(async (req, res) => {
     const body = parse(loginSchema, req.body);
     if (!allowLoginAttempt(`ip:${req.ip}`) || !allowLoginAttempt(`email:${body.email}`)) {
-      throw new AppError(400, 'RATE_LIMITED', 'Terlalu banyak percobaan. Tunggu satu menit.');
+      throw rateLimited();
     }
     const { token, user } = await auth.login(body);
     setSessionCookie(res, token);
@@ -73,7 +82,9 @@ authRouter.post(
   '/change-password',
   requireAuth,
   handle(async (req, res) => {
-    await auth.changePassword(req.user, parse(changePasswordSchema, req.body));
+    const body = parse(changePasswordSchema, req.body);
+    if (!allowPasswordCheck(`user:${req.user.id}`)) throw rateLimited();
+    await auth.changePassword(req.user, body);
     res.json({ message: 'Kata sandi berhasil diubah.' });
   }),
 );

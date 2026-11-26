@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { api, query } from '../lib/api.js';
+import { api, newRequestKey, query } from '../lib/api.js';
 import {
   defaultAccountId,
   lineError,
@@ -208,20 +208,27 @@ export default function NewSale() {
     });
   }
 
+  // One key per form: if the connection drops and the owner taps Simpan again, it saves once.
+  const [requestKey] = useState(newRequestKey);
+
   const save = useCallback(
     () =>
-      api.post('/sales', {
-        items: lines.map((line) => ({
-          product_id: line.product_id,
-          description: line.description,
-          qty: parseQty(line.qty),
-          unit_price: line.unit_price ?? 0,
-        })),
-        discount: discount ?? 0,
-        account_id: accountId,
-        sale_date: form.sale_date,
-      }),
-    [lines, discount, form.sale_date, accountId],
+      api.create(
+        '/sales',
+        {
+          items: lines.map((line) => ({
+            product_id: line.product_id,
+            description: line.description,
+            qty: parseQty(line.qty),
+            unit_price: line.unit_price ?? 0,
+          })),
+          discount: discount ?? 0,
+          account_id: accountId,
+          sale_date: form.sale_date,
+        },
+        requestKey,
+      ),
+    [lines, discount, form.sale_date, accountId, requestKey],
   );
 
   const onDone = useCallback(

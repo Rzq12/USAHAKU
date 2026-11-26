@@ -90,7 +90,7 @@
     @apply rounded-lg border border-hairline bg-white;
   }
   .pill-tab {
-    @apply inline-flex min-h-[44px] items-center whitespace-nowrap rounded-full border border-hairline px-4 text-body-sm font-medium text-steel transition-colors duration-150 hover:border-hairline-strong hover:text-ink sm:min-h-[36px];
+    @apply inline-flex min-h-[48px] items-center whitespace-nowrap rounded-full border border-hairline px-4 text-body-sm font-medium text-steel transition-colors duration-150 hover:border-hairline-strong hover:text-ink;
   }
   .pill-tab[aria-selected='true'],
   .pill-tab[aria-pressed='true'],

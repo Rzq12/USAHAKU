@@ -5,6 +5,7 @@ import { getSystemCategory } from '../db/categories.js';
 import { changedFields, writeAudit } from '../db/audit.js';
 import { conflict, fieldError, notFound, rethrowUnique, unprocessable } from '../lib/errors.js';
 import { lineAmount } from '../lib/money.js';
+import { MAX_AMOUNT } from '../lib/schemas.js';
 import { todayJakarta } from '../lib/dates.js';
 import { requireActiveAccount } from './accounts.js';
 
@@ -91,6 +92,7 @@ async function restockExpense(client, actor, product, body) {
   const costPrice = body.cost_price ?? product.cost_price;
   const amount = lineAmount(body.qty, costPrice);
   if (amount <= 0) throw fieldError('cost_price', 'Isi harga modal untuk mencatat pengeluaran.');
+  if (amount > MAX_AMOUNT) throw fieldError('qty', 'Nilai stok masuk terlalu besar.');
   await insertTransaction(client, {
     businessId: actor.business_id,
     account_id: account.id,

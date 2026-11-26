@@ -27,6 +27,14 @@ describe('defaultAccountId', () => {
 });
 
 describe('expenseCategories', () => {
+  test('leaves out the stock purchase category, which belongs in Produk', () => {
+    const items = [
+      { id: 'stok', name: 'Pembelian Stok', type: 'expense', system_key: 'inventory' },
+      { id: 'sewa', name: 'Sewa', type: 'expense', system_key: null },
+    ];
+    expect(expenseCategories({ items }).map((category) => category.id)).toEqual(['sewa']);
+  });
+
   test('keeps active expense categories without children', () => {
     const items = [
       { id: 'p', name: 'Induk', type: 'expense', parent_id: null, is_archived: false },

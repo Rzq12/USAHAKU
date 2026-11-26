@@ -30,10 +30,14 @@ export const MAX_AMOUNT = 999_999_999_999;
 
 export const uuid = z.string().uuid();
 export const dateString = z.string().refine(isValidDate, 'Tanggal tidak valid.');
-export const notFarAhead = dateString.refine(
-  (value) => value <= addDays(todayJakarta(), 366),
-  'Tanggal tidak boleh lebih dari 1 tahun ke depan.',
-);
+/* Entries older than this are almost always a mistyped year that would rewrite closed periods. */
+export const EARLIEST_ENTRY_DATE = '2000-01-01';
+export const notFarAhead = dateString
+  .refine(
+    (value) => value <= addDays(todayJakarta(), 366),
+    'Tanggal tidak boleh lebih dari 1 tahun ke depan.',
+  )
+  .refine((value) => value >= EARLIEST_ENTRY_DATE, 'Tanggal tidak boleh sebelum tahun 2000.');
 export const amount = z
   .number({ invalid_type_error: 'Masukkan angka rupiah tanpa desimal.' })
   .int('Masukkan angka rupiah tanpa desimal.')
@@ -44,8 +48,11 @@ export const nonNegativeAmount = z
   .int('Masukkan angka rupiah tanpa desimal.')
   .min(0, 'Tidak boleh kurang dari 0.')
   .max(MAX_AMOUNT);
+/* Quantities are stored as NUMERIC(12,3); larger values would overflow the column. */
+export const MAX_QTY = 999_999_999;
 export const quantity = z
   .number({ invalid_type_error: 'Masukkan angka.' })
+  .refine((value) => Math.abs(value) <= MAX_QTY, 'Jumlah terlalu besar.')
   .refine(
     (value) => Math.abs(value * 1000 - Math.round(value * 1000)) < 1e-6,
     'Maksimal 3 angka desimal.',

@@ -18,6 +18,11 @@ export const notFound = (message = 'Data tidak ditemukan.') =>
   new AppError(404, 'NOT_FOUND', message);
 export const conflict = (message, code = 'CONFLICT') => new AppError(409, code, message);
 export const unprocessable = (message, code = 'UNPROCESSABLE') => new AppError(422, code, message);
+export function tooManyRequests(message, retryAfterSeconds) {
+  const error = new AppError(429, 'RATE_LIMITED', message);
+  error.retryAfter = retryAfterSeconds;
+  return error;
+}
 
 const UNIQUE_VIOLATION = '23505';
 

@@ -21,7 +21,7 @@ export async function salesTotals(q, businessId, from, to) {
   const { rows } = await q.query(
     `SELECT COALESCE(SUM(s.total), 0) AS revenue,
        COALESCE(SUM(s.discount), 0) AS discount,
-       COALESCE((SELECT SUM(i.line_cost) FROM sale_items i JOIN sales si ON si.id = i.sale_id
+       COALESCE((SELECT SUM(i.line_cost) FROM sale_items i JOIN sales si ON si.id = i.sale_id AND si.business_id = i.business_id
                  WHERE si.business_id = $1 AND si.status = 'active'
                    AND si.sale_date BETWEEN $2 AND $3), 0) AS cogs,
        count(*) AS sale_count
@@ -35,7 +35,7 @@ export async function salesTotals(q, businessId, from, to) {
 export async function otherIncome(q, businessId, from, to) {
   const { rows } = await q.query(
     `SELECT COALESCE(SUM(t.amount), 0) AS amount, count(*) AS line_count
-     FROM transactions t JOIN categories c ON c.id = t.category_id
+     FROM transactions t JOIN categories c ON c.id = t.category_id AND c.business_id = t.business_id
      WHERE t.business_id = $1 AND t.type = 'income' AND t.deleted_at IS NULL AND NOT t.is_excluded
        AND t.source_type NOT IN ('sale', 'receivable_payment')
        AND c.cash_activity = 'operating'
@@ -51,8 +51,8 @@ export async function expensesByCategory(q, businessId, from, to) {
     `SELECT c.id AS category_id, c.name, c.pl_group, parent.name AS parent_name,
        SUM(x.amount) AS amount
      FROM (${EXPENSE_LINES}) x
-     JOIN categories c ON c.id = x.category_id
-     LEFT JOIN categories parent ON parent.id = c.parent_id
+     JOIN categories c ON c.id = x.category_id AND c.business_id = $1
+     LEFT JOIN categories parent ON parent.id = c.parent_id AND parent.business_id = c.business_id
      WHERE c.cash_activity = 'operating'
      GROUP BY c.id, c.name, c.pl_group, parent.name
      ORDER BY amount DESC`,
@@ -63,13 +63,14 @@ export async function expensesByCategory(q, businessId, from, to) {
 
 export async function salesByProduct(q, businessId, from, to) {
   const { rows } = await q.query(
-    `SELECT COALESCE(p.name, i.description) AS name, COALESCE(p.unit, '') AS unit,
+    // Grouped by the name saved on each sale line, so renaming a product never relabels old sales.
+    `SELECT i.description AS name, COALESCE(MAX(p.unit), '') AS unit,
        SUM(i.qty) AS qty, SUM(i.line_total) AS revenue, SUM(i.line_cost) AS cogs
      FROM sale_items i
-     JOIN sales s ON s.id = i.sale_id
-     LEFT JOIN products p ON p.id = i.product_id
+     JOIN sales s ON s.id = i.sale_id AND s.business_id = i.business_id
+     LEFT JOIN products p ON p.id = i.product_id AND p.business_id = i.business_id
      WHERE s.business_id = $1 AND s.status = 'active' AND s.sale_date BETWEEN $2 AND $3
-     GROUP BY COALESCE(p.name, i.description), COALESCE(p.unit, '')
+     GROUP BY i.product_id, i.description
      ORDER BY revenue DESC`,
     [businessId, from, to],
   );
@@ -111,7 +112,7 @@ export async function cashFlowByCategory(q, businessId, from, to, accountId) {
     `SELECT c.cash_activity AS activity, t.type,
        CASE WHEN t.source_type = 'receivable_payment' THEN 'Pelunasan piutang' ELSE c.name END AS name,
        SUM(t.amount) AS amount
-     FROM transactions t JOIN categories c ON c.id = t.category_id
+     FROM transactions t JOIN categories c ON c.id = t.category_id AND c.business_id = t.business_id
      WHERE t.business_id = $1 AND t.type IN ('income', 'expense')
        AND t.deleted_at IS NULL AND NOT t.is_excluded
        AND t.occurred_on BETWEEN $2 AND $3
@@ -131,7 +132,7 @@ export async function cashFlowByCategory(q, businessId, from, to, accountId) {
 const STOCK_ON_DATE = `
   SELECT m.product_id, m.movement_type, m.qty
   FROM stock_movements m
-  LEFT JOIN sales s ON m.movement_type IN ('sale', 'void') AND s.id = m.ref_id
+  LEFT JOIN sales s ON m.movement_type IN ('sale', 'void') AND s.id = m.ref_id AND s.business_id = m.business_id
   WHERE m.business_id = $1
     AND COALESCE(s.sale_date, (m.created_at AT TIME ZONE 'Asia/Jakarta')::date) <= $2`;
 
@@ -171,7 +172,7 @@ export async function balanceSheetFigures(q, businessId, asOf) {
          FROM (${STOCK_ON_DATE}) m
          GROUP BY product_id
        ) x
-       JOIN products p ON p.id = x.product_id`,
+       JOIN products p ON p.id = x.product_id AND p.business_id = $1`,
       [businessId, asOf],
     ),
     // Investing and financing amounts. A payable bill counts when issued; paying it later
@@ -189,7 +190,7 @@ export async function balanceSheetFigures(q, businessId, asOf) {
          WHERE d.business_id = $1 AND d.type = 'payable' AND d.status <> 'void'
            AND d.issue_date <= $2
        ) x
-       JOIN categories c ON c.id = x.category_id
+       JOIN categories c ON c.id = x.category_id AND c.business_id = $1
        WHERE c.cash_activity <> 'operating'
        GROUP BY c.cash_activity, c.type, c.name
        ORDER BY c.name`,
@@ -215,7 +216,7 @@ export async function turnoverByMonth(q, businessId, year) {
          AND EXTRACT(YEAR FROM s.sale_date) = $2
        UNION ALL
        SELECT t.occurred_on, t.amount
-       FROM transactions t JOIN categories c ON c.id = t.category_id
+       FROM transactions t JOIN categories c ON c.id = t.category_id AND c.business_id = t.business_id
        WHERE t.business_id = $1 AND t.type = 'income' AND t.deleted_at IS NULL AND NOT t.is_excluded
          AND t.source_type NOT IN ('sale', 'receivable_payment')
          AND c.cash_activity = 'operating'

@@ -120,7 +120,7 @@ export async function listMovements(q, businessId, productId, { page, limit }) {
   );
   const { rows } = await q.query(
     `SELECT m.id, m.movement_type, m.qty, m.reason, m.ref_id, m.created_at, u.name AS created_by_name
-     FROM stock_movements m LEFT JOIN users u ON u.id = m.created_by
+     FROM stock_movements m LEFT JOIN users u ON u.id = m.created_by AND u.business_id = m.business_id
      WHERE m.business_id = $1 AND m.product_id = $2
      ORDER BY m.created_at DESC
      LIMIT ${limit} OFFSET ${(page - 1) * limit}`,

@@ -139,13 +139,14 @@ export function MoneyField({
 export function CheckField({ label, hint, ...props }) {
   const id = useId();
   return (
-    <div className="flex items-start gap-3">
-      <input id={id} type="checkbox" className="mt-[3px] h-5 w-5 accent-primary" {...props} />
-      <label htmlFor={id} className="text-body-sm text-charcoal">
+    // The whole row is the tap target, at least 48px tall, not just the small box.
+    <label htmlFor={id} className="flex min-h-[48px] cursor-pointer items-center gap-3">
+      <input id={id} type="checkbox" className="h-6 w-6 shrink-0 accent-primary" {...props} />
+      <span className="text-body-sm text-charcoal">
         {label}
         {hint && <span className="mt-0.5 block text-caption text-slate">{hint}</span>}
-      </label>
-    </div>
+      </span>
+    </label>
   );
 }
 

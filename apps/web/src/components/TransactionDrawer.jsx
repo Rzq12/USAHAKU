@@ -80,6 +80,8 @@ export function TransactionDrawer({ open, onClose, initialType = 'expense', tran
   const categoryTouched = useRef(false);
   const isEdit = Boolean(transaction);
   const isSystem = isEdit && transaction.source_type !== 'manual';
+  // Sales and stock purchases drive profit; the API refuses a new category for them.
+  const categoryLocked = isEdit && ['sale', 'restock'].includes(transaction.source_type);
 
   useEffect(() => {
     if (!open) return;
@@ -283,6 +285,7 @@ export function TransactionDrawer({ open, onClose, initialType = 'expense', tran
             }}
             error={fieldErrors.category_id}
             hint={suggestion ? `Disarankan dari catatan: ${suggestion.category_name}` : undefined}
+            disabled={categoryLocked}
           >
             <CategoryOptions categories={categories.data} type={form.type} />
           </SelectField>

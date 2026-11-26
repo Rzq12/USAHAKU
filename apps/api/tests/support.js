@@ -8,6 +8,8 @@ if (!process.env.TEST_DATABASE_URL?.includes('test')) {
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
 process.env.LOG_REQUESTS = 'false';
 process.env.LOGIN_RATE_LIMIT = '100000';
+process.env.REGISTER_RATE_LIMIT = '100000';
+process.env.REGISTER_GLOBAL_RATE_LIMIT = '100000';
 process.env.UPLOAD_DIR = path.join(os.tmpdir(), 'usahaku-test-uploads');
 
 const { createApp } = await import('../src/app.js');

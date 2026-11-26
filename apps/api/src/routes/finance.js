@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { config } from '../config.js';
-import { AppError } from '../lib/errors.js';
+import { AppError, notFound, tooManyRequests } from '../lib/errors.js';
 import { handle, sendFile } from '../lib/http.js';
 import { dateRangeQuery, dateString, parse, queryBoolean, uuid } from '../lib/schemas.js';
 import { daysBetween } from '../lib/dates.js';
@@ -13,8 +13,24 @@ export const dashboardRouter = Router();
 export const reportsRouter = Router();
 export const exportRouter = Router();
 
-/** Fails a slow file build with the retry message from the functional requirements. */
-function withExportTimeout(promise, message) {
+/*
+ * Businesses with a file build still running. The slot is released when the build itself ends,
+ * not when the request times out, so repeated requests cannot pile work onto the shared process.
+ */
+const exportsRunning = new Set();
+const EXPORT_BUSY = 'Ekspor sebelumnya masih berjalan. Tunggu sebentar, lalu coba lagi.';
+
+/** Runs one file build per business and fails a slow one with the retry message. */
+function runExport(actor, build, message) {
+  if (exportsRunning.has(actor.business_id)) {
+    return Promise.reject(tooManyRequests(EXPORT_BUSY, 30));
+  }
+  exportsRunning.add(actor.business_id);
+  const work = Promise.resolve()
+    .then(build)
+    .finally(() => exportsRunning.delete(actor.business_id));
+  // The build keeps running after a timeout; this stops its later rejection going unhandled.
+  work.catch(() => {});
   let timer;
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(
@@ -22,7 +38,14 @@ function withExportTimeout(promise, message) {
       config.exportTimeoutMs,
     );
   });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+}
+
+/** A removed or unknown report is a missing address, like any other removed route. */
+function reportNameOf(req) {
+  const name = req.params.name;
+  if (!Object.hasOwn(reports.REPORTS, name)) throw notFound('Laporan tidak ditemukan.');
+  return name;
 }
 
 /* Dashboard */
@@ -33,7 +56,6 @@ dashboardRouter.get(
 
 /* Reports */
 const MAX_RANGE_DAYS = 5 * 366;
-const reportName = z.enum(Object.keys(reports.REPORTS));
 const rangeFields = dateRangeQuery.refine(
   (range) => daysBetween(range.from, range.to) <= MAX_RANGE_DAYS,
   {
@@ -58,8 +80,10 @@ const packageQuery = z
 reportsRouter.get(
   '/financial-statements/export',
   handle(async (req, res) => {
-    const file = await withExportTimeout(
-      reports.exportFinancialStatements(req.user, parse(packageQuery, req.query)),
+    const query = parse(packageQuery, req.query);
+    const file = await runExport(
+      req.user,
+      () => reports.exportFinancialStatements(req.user, query),
       'Ekspor terlalu lama. Persempit rentang tanggal.',
     );
     sendFile(res, file);
@@ -68,9 +92,11 @@ reportsRouter.get(
 reportsRouter.get(
   '/:name/export',
   handle(async (req, res) => {
-    const name = parse(reportName, req.params.name);
-    const file = await withExportTimeout(
-      reports.exportReport(req.user, name, parse(exportQuery, req.query)),
+    const name = reportNameOf(req);
+    const query = parse(exportQuery, req.query);
+    const file = await runExport(
+      req.user,
+      () => reports.exportReport(req.user, name, query),
       'Ekspor terlalu lama. Persempit rentang tanggal.',
     );
     sendFile(res, file);
@@ -79,7 +105,7 @@ reportsRouter.get(
 reportsRouter.get(
   '/:name',
   handle(async (req, res) => {
-    const name = parse(reportName, req.params.name);
+    const name = reportNameOf(req);
     res.json(await reports.runReport(req.user, name, parse(reportQuery, req.query)));
   }),
 );
@@ -89,8 +115,10 @@ const optionalRange = z.object({ from: dateString.optional(), to: dateString.opt
 exportRouter.get(
   '/data',
   handle(async (req, res) => {
-    const file = await withExportTimeout(
-      buildDataExport(req.user, parse(optionalRange, req.query)),
+    const range = parse(optionalRange, req.query);
+    const file = await runExport(
+      req.user,
+      () => buildDataExport(req.user, range),
       'Ekspor terlalu lama. Coba lagi dengan rentang tanggal lebih kecil.',
     );
     sendFile(res, file);

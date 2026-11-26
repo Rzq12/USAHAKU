@@ -7,7 +7,7 @@ import { todayJakarta } from '../lib/dates.js';
 
 export async function buildDataExport(actor, range) {
   const entities = await readAllEntities(pool, actor.business_id, range);
-  const buffer = createZip(
+  const buffer = await createZip(
     entities.map((entity) => ({
       name: `${entity.file}.csv`,
       content: toCsv(

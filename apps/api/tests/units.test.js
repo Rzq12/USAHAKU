@@ -41,8 +41,8 @@ test('CSV output neutralizes spreadsheet formulas', () => {
   assert.ok(toCsv(['n'], [[-5000]]).includes('-5000'));
 });
 
-test('ZIP output holds the original bytes under deflate', () => {
-  const zip = createZip([{ name: 'a.csv', content: 'halo,dunia\n' }]);
+test('ZIP output holds the original bytes under deflate', async () => {
+  const zip = await createZip([{ name: 'a.csv', content: 'halo,dunia\n' }]);
   assert.equal(zip.readUInt32LE(0), 0x04034b50);
   const nameLength = zip.readUInt16LE(26);
   const size = zip.readUInt32LE(18);
@@ -61,4 +61,13 @@ test('login rate limit: the 11th attempt in a minute is refused, the next minute
   for (let i = 0; i < 10; i += 1) assert.equal(allow('ip', now), true);
   assert.equal(allow('ip', now), false);
   assert.equal(allow('ip', now + 60_000), true);
+});
+
+test('the limiter drops only stale counters, so a flood of keys never resets a live one', () => {
+  const allow = perMinuteLimiter(2);
+  const now = 1_000_000_000_000;
+  allow('victim', now);
+  allow('victim', now);
+  for (let i = 0; i < 10_050; i += 1) allow(`flood-${i}`, now);
+  assert.equal(allow('victim', now), false);
 });

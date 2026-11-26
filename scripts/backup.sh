@@ -2,6 +2,8 @@
 # Daily backup (NFR-006): database dump and receipt volume copy, kept for 30 days.
 # Run from the repo root on the VPS, for example from cron at 02:00.
 set -eu
+# The dumps hold every business's books, so only the user running this may read them.
+umask 077
 
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/usahaku}"
 STAMP="$(date +%Y-%m-%d)"

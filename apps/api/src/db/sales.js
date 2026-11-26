@@ -51,10 +51,10 @@ const COLUMNS = `s.id, s.contact_id, s.sale_date, s.subtotal, s.discount, s.tota
   i.id AS invoice_id, i.number AS invoice_number, ${PAYMENT_STATUS_SQL} AS payment_status`;
 
 const JOINS = `FROM sales s
-  LEFT JOIN contacts c ON c.id = s.contact_id
-  LEFT JOIN accounts a ON a.id = s.account_id
-  LEFT JOIN users u ON u.id = s.created_by
-  LEFT JOIN invoices i ON i.sale_id = s.id`;
+  LEFT JOIN contacts c ON c.id = s.contact_id AND c.business_id = s.business_id
+  LEFT JOIN accounts a ON a.id = s.account_id AND a.business_id = s.business_id
+  LEFT JOIN users u ON u.id = s.created_by AND u.business_id = s.business_id
+  LEFT JOIN invoices i ON i.sale_id = s.id AND i.business_id = s.business_id`;
 
 export async function getSale(q, businessId, saleId) {
   const { rows } = await q.query(

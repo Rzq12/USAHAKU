@@ -8,13 +8,15 @@ export class ApiError extends Error {
 }
 
 const CONNECTION_ERROR = 'Koneksi terputus. Data Anda belum tersimpan, coba lagi.';
+// A failed read loses nothing, so it must not tell the owner their data was not saved.
+const LOAD_ERROR = 'Koneksi terputus. Data belum bisa dimuat. Periksa internet, lalu coba lagi.';
 let onUnauthorized = () => {};
 
 export function setUnauthorizedHandler(handler) {
   onUnauthorized = handler;
 }
 
-async function request(method, path, { json, form } = {}) {
+async function request(method, path, { json, form, headers = {} } = {}) {
   let response;
   try {
     response = await fetch(`/api${path}`, {
@@ -23,11 +25,13 @@ async function request(method, path, { json, form } = {}) {
       headers: {
         'X-Usahaku-Client': 'web',
         ...(json !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...headers,
       },
       body: json !== undefined ? JSON.stringify(json) : form,
     });
   } catch {
-    throw new ApiError(0, { code: 'NETWORK', message: CONNECTION_ERROR });
+    const message = method === 'GET' ? LOAD_ERROR : CONNECTION_ERROR;
+    throw new ApiError(0, { code: 'NETWORK', message });
   }
 
   if (response.status === 204) return null;
@@ -40,9 +44,17 @@ async function request(method, path, { json, form } = {}) {
   return isJson ? response.json() : response;
 }
 
+/** A random key for one form; works outside secure contexts where randomUUID is missing. */
+export function newRequestKey() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
 export const api = {
   get: (path) => request('GET', path),
   post: (path, json = {}) => request('POST', path, { json }),
+  /** A create the server records once per key, even if a dropped connection makes us resend. */
+  create: (path, json, key) => request('POST', path, { json, headers: { 'Idempotency-Key': key } }),
   put: (path, json) => request('PUT', path, { json }),
   del: (path) => request('DELETE', path),
   upload: (path, form) => request('POST', path, { form }),
