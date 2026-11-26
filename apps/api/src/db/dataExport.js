@@ -66,6 +66,35 @@ const ENTITIES = [
     sql: `SELECT id, sale_id, number, issue_date, due_date, status, notes, created_at
           FROM invoices WHERE business_id = $1`,
   },
+  {
+    file: 'business',
+    sql: `SELECT id, name, address, phone, npwp, taxpayer_type, period_start_day, payment_info,
+            created_at
+          FROM businesses WHERE id = $1`,
+  },
+  {
+    file: 'tags',
+    sql: `SELECT id, name, created_at FROM tags WHERE business_id = $1 ORDER BY name`,
+  },
+  {
+    file: 'transaction_tags',
+    sql: `SELECT tt.transaction_id, tt.tag_id
+          FROM transaction_tags tt JOIN tags g ON g.id = tt.tag_id
+          WHERE g.business_id = $1`,
+  },
+  {
+    // The photo files themselves stay in the backup of the upload folder; this lists them.
+    file: 'attachments',
+    sql: `SELECT a.id, t.id AS transaction_id, a.file_path, a.mime_type, a.size_bytes, a.created_at
+          FROM attachments a LEFT JOIN transactions t
+            ON t.attachment_id = a.id AND t.business_id = a.business_id
+          WHERE a.business_id = $1 ORDER BY a.created_at`,
+  },
+  {
+    file: 'category_rules',
+    sql: `SELECT id, category_id, keyword, priority, created_at
+          FROM category_rules WHERE business_id = $1 ORDER BY priority DESC`,
+  },
 ];
 
 /** One result per entity, with its column names even when it has no rows. */

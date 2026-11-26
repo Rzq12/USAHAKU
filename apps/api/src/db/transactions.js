@@ -4,15 +4,15 @@ const SELECT_COLUMNS = `t.id, t.type, t.amount, t.occurred_on, t.note, t.account
   a.name AS account_name, ta.name AS transfer_account_name, c.name AS category_name,
   u.name AS created_by_name, ct.name AS contact_name,
   COALESCE((SELECT array_agg(g.name ORDER BY g.name)
-            FROM transaction_tags tt JOIN tags g ON g.id = tt.tag_id
+            FROM transaction_tags tt JOIN tags g ON g.id = tt.tag_id AND g.business_id = t.business_id
             WHERE tt.transaction_id = t.id), '{}') AS tags`;
 
 const JOINS = `FROM transactions t
-  JOIN accounts a ON a.id = t.account_id
-  LEFT JOIN accounts ta ON ta.id = t.transfer_account_id
-  LEFT JOIN categories c ON c.id = t.category_id
-  LEFT JOIN users u ON u.id = t.created_by
-  LEFT JOIN contacts ct ON ct.id = t.contact_id`;
+  JOIN accounts a ON a.id = t.account_id AND a.business_id = t.business_id
+  LEFT JOIN accounts ta ON ta.id = t.transfer_account_id AND ta.business_id = t.business_id
+  LEFT JOIN categories c ON c.id = t.category_id AND c.business_id = t.business_id
+  LEFT JOIN users u ON u.id = t.created_by AND u.business_id = t.business_id
+  LEFT JOIN contacts ct ON ct.id = t.contact_id AND ct.business_id = t.business_id`;
 
 export async function insertTransaction(q, t) {
   const { rows } = await q.query(
@@ -151,7 +151,7 @@ function buildFilters(businessId, filters) {
   if (filters.category_id) add('t.category_id = ?', filters.category_id);
   if (filters.tag) {
     add(
-      `EXISTS (SELECT 1 FROM transaction_tags tt JOIN tags g ON g.id = tt.tag_id
+      `EXISTS (SELECT 1 FROM transaction_tags tt JOIN tags g ON g.id = tt.tag_id AND g.business_id = t.business_id
                WHERE tt.transaction_id = t.id AND g.name = ?)`,
       filters.tag,
     );

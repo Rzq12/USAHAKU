@@ -8,12 +8,14 @@ const NAME_TAKEN = {
 };
 const HAS_TRANSACTIONS = 'Akun sudah punya transaksi. Arsipkan saja.';
 
-/** BR-011: Staff never receive balances. */
+/**
+ * The total counts archived accounts too: archiving hides an account from pickers, but the money
+ * in it still belongs to the business, as the balance sheet shows.
+ */
 export async function listAccounts(actor, includeArchived) {
-  const items = await accounts.listAccounts(pool, actor.business_id, includeArchived);
-  const totalBalance = items
-    .filter((account) => !account.is_archived)
-    .reduce((sum, account) => sum + account.balance, 0);
+  const all = await accounts.listAccounts(pool, actor.business_id, true);
+  const totalBalance = all.reduce((sum, account) => sum + account.balance, 0);
+  const items = includeArchived ? all : all.filter((account) => !account.is_archived);
   return { items, total_balance: totalBalance };
 }
 

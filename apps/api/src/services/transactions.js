@@ -14,13 +14,23 @@ const SAME_ACCOUNT = 'Akun asal dan tujuan harus berbeda.';
 const SYSTEM_SOURCE =
   'Transaksi ini dibuat otomatis. Ubah nominal, akun, atau tanggalnya dari catatan asalnya.';
 const NO_DELETE_SOURCE = 'Transaksi ini dibuat dari penjualan atau pembayaran. Batalkan dari sana.';
+const FIXED_CATEGORY = 'Kategori transaksi otomatis ini tidak bisa diubah.';
+const NO_CONTACT = 'Kontak tidak bisa dipilih lagi.';
+/* Sales and stock purchases drive profit; their category decides how profit is counted. */
+const FIXED_CATEGORY_SOURCES = new Set(['sale', 'restock']);
 
 function normalizeTags(tags) {
   return [...new Set(tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean))];
 }
 
-async function validateLinks(client, businessId, body) {
-  await requireActiveAccount(client, businessId, body.account_id);
+/**
+ * Checks every referenced account and category belongs to the business and may be used.
+ * A reference that is unchanged from `before` was already checked when it was stored, so an
+ * archived account or category does not block editing the rest of an old record.
+ */
+async function validateLinks(client, businessId, body, before = null) {
+  const unchanged = (field) => before && body[field] === before[field];
+  if (!unchanged('account_id')) await requireActiveAccount(client, businessId, body.account_id);
   if (body.type === 'transfer') {
     if (!body.transfer_account_id) {
       throw fieldError('transfer_account_id', 'Pilih akun tujuan.');
@@ -28,11 +38,27 @@ async function validateLinks(client, businessId, body) {
     if (body.transfer_account_id === body.account_id) {
       throw fieldError('transfer_account_id', SAME_ACCOUNT);
     }
-    await requireActiveAccount(client, businessId, body.transfer_account_id, 'transfer_account_id');
+    if (!unchanged('transfer_account_id')) {
+      await requireActiveAccount(
+        client,
+        businessId,
+        body.transfer_account_id,
+        'transfer_account_id',
+      );
+    }
     return;
   }
   if (!body.category_id) throw fieldError('category_id', 'Pilih kategori.');
-  await requireActiveCategory(client, businessId, body.category_id, body.type);
+  if (!unchanged('category_id')) {
+    await requireActiveCategory(client, businessId, body.category_id, body.type);
+  }
+}
+
+/** Contacts are retired: a record may keep the contact it already has, or drop it. */
+function checkContact(contactId, before = null) {
+  if (contactId && contactId !== (before?.contact_id ?? null)) {
+    throw fieldError('contact_id', NO_CONTACT);
+  }
 }
 
 async function withBalance(client, actor, transactionId, accountId) {
@@ -44,6 +70,7 @@ async function withBalance(client, actor, transactionId, accountId) {
 }
 
 export async function createTransaction(actor, body) {
+  checkContact(body.contact_id);
   return withTx(async (client) => {
     await validateLinks(client, actor.business_id, body);
     const id = await transactions.insertTransaction(client, {
@@ -94,13 +121,22 @@ export async function updateTransaction(actor, transactionId, body) {
       is_excluded: body.is_excluded ?? before.is_excluded,
     };
 
+    checkContact(next.contact_id, before);
     if (before.source_type !== 'manual') {
       const money = next.amount !== before.amount || next.account_id !== before.account_id;
       if (money || next.occurred_on !== before.occurred_on) {
         throw unprocessable(SYSTEM_SOURCE, 'SYSTEM_TRANSACTION');
       }
+      const categoryChanged = next.category_id !== before.category_id;
+      if (categoryChanged && FIXED_CATEGORY_SOURCES.has(before.source_type)) {
+        throw unprocessable(FIXED_CATEGORY, 'SYSTEM_TRANSACTION');
+      }
+      if (categoryChanged && before.type !== 'transfer') {
+        if (!next.category_id) throw fieldError('category_id', 'Pilih kategori.');
+        await requireActiveCategory(client, actor.business_id, next.category_id, before.type);
+      }
     } else {
-      await validateLinks(client, actor.business_id, next);
+      await validateLinks(client, actor.business_id, next, before);
     }
 
     await transactions.updateTransaction(client, actor.business_id, transactionId, next);

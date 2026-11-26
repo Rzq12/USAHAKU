@@ -201,7 +201,10 @@ test('AC-024: the export ZIP has every entity as UTF-8 CSV with a header row, an
   const files = readZip(response.body);
   const expected = [
     'accounts',
+    'attachments',
+    'business',
     'categories',
+    'category_rules',
     'contacts',
     'debts',
     'invoices',
@@ -210,6 +213,8 @@ test('AC-024: the export ZIP has every entity as UTF-8 CSV with a header row, an
     'sale_items',
     'sales',
     'stock_movements',
+    'tags',
+    'transaction_tags',
     'transactions',
   ];
   assert.deepEqual(

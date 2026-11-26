@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { api } from '../lib/api.js';
+import { api, newRequestKey } from '../lib/api.js';
 import { notifyChanged, useSubmit } from '../lib/hooks.js';
 import { compressReceipt } from '../lib/image.js';
 import { todayJakarta } from '../lib/format.js';
@@ -43,18 +43,25 @@ export default function NewExpense() {
   const choices = expenseCategories(categories.data);
   const setOption = (key) => (event) => setOptions({ ...options, [key]: event.target.value });
 
+  // One key per form: if the connection drops and the owner taps Simpan again, it saves once.
+  const [requestKey] = useState(newRequestKey);
+
   const save = useCallback(async () => {
-    const result = await api.post('/transactions', {
-      type: 'expense',
-      amount,
-      occurred_on: options.occurred_on,
-      account_id: accountId,
-      category_id: categoryId,
-      contact_id: null,
-      transfer_account_id: null,
-      note: options.note,
-      tags: [],
-    });
+    const result = await api.create(
+      '/transactions',
+      {
+        type: 'expense',
+        amount,
+        occurred_on: options.occurred_on,
+        account_id: accountId,
+        category_id: categoryId,
+        contact_id: null,
+        transfer_account_id: null,
+        note: options.note,
+        tags: [],
+      },
+      requestKey,
+    );
     if (!receipt) return {};
     try {
       const data = new FormData();
@@ -64,7 +71,7 @@ export default function NewExpense() {
     } catch {
       return { warning: PHOTO_FAILED };
     }
-  }, [amount, options, accountId, categoryId, receipt]);
+  }, [amount, options, accountId, categoryId, receipt, requestKey]);
 
   const onDone = useCallback(
     ({ warning }) => {
@@ -131,6 +138,13 @@ export default function NewExpense() {
               .
             </p>
           )}
+          <p className="mt-3 text-body-sm text-slate">
+            Beli stok barang? Catat dari{' '}
+            <Link to="/produk" className="link">
+              Produk
+            </Link>
+            , supaya stoknya ikut bertambah.
+          </p>
           {fieldErrors.category_id && <FormError message={fieldErrors.category_id} />}
           {categories.error && <FormError message={categories.error.message} />}
         </fieldset>

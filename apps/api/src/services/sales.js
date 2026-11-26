@@ -8,6 +8,7 @@ import { setInvoiceStatusBySale } from '../db/invoices.js';
 import { writeAudit } from '../db/audit.js';
 import { conflict, fieldError, notFound, unprocessable } from '../lib/errors.js';
 import { formatQty, lineAmount } from '../lib/money.js';
+import { MAX_AMOUNT } from '../lib/schemas.js';
 import { requireActiveAccount } from './accounts.js';
 
 /** Prices each line, reduces stock for tracked products, and returns what to store. */
@@ -113,7 +114,16 @@ export async function createSale(actor, body) {
     await requireActiveAccount(client, actor.business_id, body.account_id);
 
     const lines = await buildLines(client, actor, body);
+    lines.forEach((line, index) => {
+      if (line.line_total > MAX_AMOUNT) {
+        throw fieldError(`items.${index}.qty`, 'Total baris ini terlalu besar. Periksa jumlah.');
+      }
+    });
     const subtotal = lines.reduce((sum, line) => sum + line.line_total, 0);
+    // Above this, rupiah amounts stop being exact in JavaScript numbers and reports.
+    if (subtotal > MAX_AMOUNT) {
+      throw fieldError('items', 'Total penjualan terlalu besar. Periksa jumlah dan harga.');
+    }
     if (body.discount > subtotal) throw fieldError('discount', 'Diskon melebihi subtotal.');
     const total = subtotal - body.discount;
 

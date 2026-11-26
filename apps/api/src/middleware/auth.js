@@ -19,7 +19,7 @@ export function sessionExpiry() {
 export const requireAuth = handle(async (req, _res, next) => {
   const token = req.cookies[SESSION_COOKIE];
   if (!token) throw unauthorized();
-  const user = await findSessionUser(pool, hashToken(token));
+  const user = await findSessionUser(pool, hashToken(token), config.sessionMaxDays);
   if (!user || !user.is_active) throw unauthorized();
 
   const nextExpiry = sessionExpiry();

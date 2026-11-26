@@ -135,7 +135,7 @@ export async function deleteCategory(q, businessId, categoryId) {
 export async function listRules(q, businessId) {
   const { rows } = await q.query(
     `SELECT r.id, r.keyword, r.priority, r.category_id, c.name AS category_name, c.type AS category_type
-     FROM category_rules r JOIN categories c ON c.id = r.category_id
+     FROM category_rules r JOIN categories c ON c.id = r.category_id AND c.business_id = r.business_id
      WHERE r.business_id = $1
      ORDER BY r.priority DESC, length(r.keyword) DESC`,
     [businessId],
@@ -180,7 +180,7 @@ export async function deleteRule(q, businessId, ruleId) {
 export async function matchRule(q, businessId, note, type) {
   const { rows } = await q.query(
     `SELECT r.category_id, c.name AS category_name, c.type, r.keyword, r.priority
-     FROM category_rules r JOIN categories c ON c.id = r.category_id
+     FROM category_rules r JOIN categories c ON c.id = r.category_id AND c.business_id = r.business_id
      WHERE r.business_id = $1 AND NOT c.is_archived
        AND position(r.keyword IN lower($2)) > 0
        AND ($3::text IS NULL OR c.type = $3)

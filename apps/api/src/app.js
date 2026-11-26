@@ -1,6 +1,7 @@
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import {
+  apiSecurityHeaders,
   errorHandler,
   notFoundHandler,
   requestLog,
@@ -22,6 +23,7 @@ export function createApp() {
   app.use(requestLog);
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
+  app.use('/api', apiSecurityHeaders);
   app.use('/api', requireCsrfHeader);
 
   app.use('/api/auth', authRouter);

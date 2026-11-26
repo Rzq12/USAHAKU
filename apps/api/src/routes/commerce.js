@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { handle, pageResult } from '../lib/http.js';
+import { handle, idempotent, pageResult } from '../lib/http.js';
 import {
   dateString,
   nonNegativeAmount,
@@ -142,6 +142,7 @@ salesRouter.get(
 );
 salesRouter.post(
   '/',
+  idempotent(),
   handle(async (req, res) =>
     res.status(201).json(await sales.createSale(req.user, parse(saleSchema, req.body))),
   ),

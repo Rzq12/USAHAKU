@@ -9,10 +9,14 @@ function rank(category) {
   return category.name === 'Lainnya' ? 1 : 0;
 }
 
-/** Expense categories shown as big buttons: active ones without active children. */
+/**
+ * Expense categories shown as big buttons: active ones without active children. The stock
+ * purchase category is left out: buying stock belongs in Produk, where it also adds the stock.
+ */
 export function expenseCategories(categories) {
   const active = (categories?.items ?? []).filter(
-    (category) => category.type === 'expense' && !category.is_archived,
+    (category) =>
+      category.type === 'expense' && !category.is_archived && category.system_key !== 'inventory',
   );
   return active
     .filter((category) => !active.some((child) => child.parent_id === category.id))
