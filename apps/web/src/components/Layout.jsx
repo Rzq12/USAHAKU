@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../lib/auth.jsx';
 import { Icon } from './Icon.jsx';
 import { ErrorBoundary } from './ErrorBoundary.jsx';
+import { Wordmark } from './Brand.jsx';
 
 const PRIMARY_NAV = [
   { to: '/', label: 'Beranda', end: true },
@@ -138,8 +139,11 @@ function DesktopHeader() {
   return (
     <header className="sticky top-0 z-30 hidden border-b border-hairline bg-white lg:block">
       <div className="mx-auto grid h-16 max-w-[1280px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 px-8 xl:grid-cols-[1fr_auto_1fr] xl:gap-6">
-        <Link to="/" className="justify-self-start text-h5 tracking-[-0.02em] text-ink">
-          usahaku
+        <Link
+          to="/"
+          className="justify-self-start whitespace-nowrap text-h5 tracking-[-0.02em] text-ink"
+        >
+          <Wordmark />
         </Link>
         <PrimaryNav />
         <p
@@ -157,8 +161,8 @@ function MobileHeader() {
   const { business } = useAuth();
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-3 border-b border-hairline bg-white px-4 lg:hidden">
-      <Link to="/" className="text-h5 tracking-[-0.02em]">
-        usahaku
+      <Link to="/" className="shrink-0 whitespace-nowrap text-h5 tracking-[-0.02em]">
+        <Wordmark />
       </Link>
       <span className="truncate text-caption text-slate">{business.name}</span>
     </header>

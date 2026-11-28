@@ -5,12 +5,15 @@ import { useAuth } from '../lib/auth.jsx';
 import { useSubmit } from '../lib/hooks.js';
 import { NavyBand } from '../components/NavyBand.jsx';
 import { FormError, TextField } from '../components/ui.jsx';
+import { Wordmark } from '../components/Brand.jsx';
 
 function AuthShell({ heading, lead, children, footer }) {
   return (
     <div className="flex min-h-dvh flex-col bg-white">
       <NavyBand className="px-4 pb-44 pt-10 text-center sm:pb-52 sm:pt-16">
-        <p className="text-h5 tracking-[-0.02em]">usahaku</p>
+        <p className="text-h5 tracking-[-0.02em]">
+          <Wordmark byClassName="text-ondark-muted" />
+        </p>
         <h1 className="mx-auto mt-6 max-w-2xl text-[32px] font-semibold leading-[1.15] tracking-[-0.02em] sm:text-[44px]">
           {heading}
         </h1>
