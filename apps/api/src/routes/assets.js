@@ -37,6 +37,14 @@ assetsRouter.post(
     res.status(201).json(await assets.createAsset(req.user, parse(assetSchema, req.body))),
   ),
 );
+assetsRouter.put(
+  '/:id',
+  handle(async (req, res) =>
+    res.json(
+      await assets.updateAsset(req.user, parse(uuid, req.params.id), parse(assetSchema, req.body)),
+    ),
+  ),
+);
 assetsRouter.delete(
   '/:id',
   handle(async (req, res) => {

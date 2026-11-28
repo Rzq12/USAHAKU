@@ -294,3 +294,56 @@ test('without an opening date the fixed share runs from acquisition and ends at 
     230_000,
   );
 });
+
+test('editing an asset recomputes its depreciation everywhere and keeps the opening rules', async () => {
+  const business = await newBusiness();
+  const { owner } = business;
+  await owner.put('/business/opening', { opening_date: '2026-10-01', opening_capital: 0 });
+  const created = await owner.post('/assets', {
+    kind: 'fixed',
+    group_name: 'Peralatan',
+    name: 'Etalase',
+    acquired_on: '2026-07-01',
+    cost: 1_200_000,
+    useful_life_months: 12,
+    expense_category_id: business.category('Lainnya').id,
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const edit = (changes) =>
+    owner.put(`/assets/${created.body.id}`, {
+      kind: 'fixed',
+      group_name: 'Peralatan',
+      name: 'Etalase kaca',
+      acquired_on: '2026-07-01',
+      cost: 2_400_000,
+      useful_life_months: 24,
+      expense_category_id: business.category('Lainnya').id,
+      ...changes,
+    });
+
+  let response = await edit({});
+  assert.equal(response.status, 200, JSON.stringify(response.body));
+  assert.equal(response.body.name, 'Etalase kaca');
+  assert.equal(response.body.monthly_share, 100_000);
+  const pl = (await owner.get('/reports/profit-loss?from=2026-10-01&to=2026-10-31')).body;
+  assert.equal(pl.totals.operating_expenses, 100_000, '2.400.000 / 24 months');
+  const balance = (await owner.get('/reports/balance-sheet?from=2026-10-01&to=2026-10-31')).body;
+  assert.equal(balance.totals.accumulated_depreciation, -400_000, '300.000 opening + 100.000');
+  assert.equal(balance.totals.adjustment, 0);
+
+  response = await edit({ acquired_on: '2026-10-05' });
+  assert.equal(response.status, 400);
+  assert.ok(response.body.error.fields.acquired_on);
+
+  const other = await newBusiness();
+  response = await other.owner.put(`/assets/${created.body.id}`, {
+    kind: 'fixed',
+    group_name: 'Peralatan',
+    name: 'Bukan milik saya',
+    acquired_on: '2026-07-01',
+    cost: 1,
+    useful_life_months: 1,
+    expense_category_id: other.category('Lainnya').id,
+  });
+  assert.equal(response.status, 404, 'another business cannot edit it');
+});

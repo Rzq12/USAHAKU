@@ -62,15 +62,46 @@ async function requireAmortizationCategory(client, businessId, categoryId) {
   }
 }
 
+function assertBeforeOpening(business, acquiredOn) {
+  if (business.opening_date && acquiredOn >= business.opening_date) {
+    throw fieldError(
+      'acquired_on',
+      'Tanggal perolehan harus sebelum tanggal saldo awal, karena harta ini bagian dari saldo awal.',
+    );
+  }
+}
+
+/*
+ * Editing changes every period the asset touches: its depreciation is recomputed from the
+ * new figures, not posted entries. An unchanged category may since have been archived.
+ */
+export async function updateAsset(actor, assetId, body) {
+  return withTx(async (client) => {
+    const before = await assets.getAsset(client, actor.business_id, assetId);
+    if (!before) throw notFound('Harta tidak ditemukan.');
+    const business = await getBusiness(client, actor.business_id);
+    assertBeforeOpening(business, body.acquired_on);
+    if (body.expense_category_id !== before.expense_category_id) {
+      await requireAmortizationCategory(client, actor.business_id, body.expense_category_id);
+    }
+    await assets.updateAsset(client, actor.business_id, assetId, body);
+    await writeAudit(client, {
+      businessId: actor.business_id,
+      userId: actor.id,
+      action: 'update',
+      entityType: 'asset',
+      entityId: assetId,
+      detail: changedFields(before, body),
+    });
+    const asset = await assets.getAsset(client, actor.business_id, assetId);
+    return withSchedule(asset, todayJakarta(), business.opening_date);
+  });
+}
+
 export async function createAsset(actor, body) {
   return withTx(async (client) => {
     const business = await getBusiness(client, actor.business_id);
-    if (business.opening_date && body.acquired_on >= business.opening_date) {
-      throw fieldError(
-        'acquired_on',
-        'Tanggal perolehan harus sebelum tanggal saldo awal, karena harta ini bagian dari saldo awal.',
-      );
-    }
+    assertBeforeOpening(business, body.acquired_on);
     await requireAmortizationCategory(client, actor.business_id, body.expense_category_id);
     const id = await assets.insertAsset(client, actor.business_id, body);
     await writeAudit(client, {

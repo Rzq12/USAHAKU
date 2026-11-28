@@ -44,6 +44,25 @@ export async function insertAsset(q, businessId, asset) {
   return rows[0].id;
 }
 
+export async function updateAsset(q, businessId, assetId, asset) {
+  await q.query(
+    `UPDATE assets SET kind = $3, group_name = $4, name = $5, acquired_on = $6, cost = $7,
+       useful_life_months = $8, expense_category_id = $9
+     WHERE business_id = $1 AND id = $2`,
+    [
+      businessId,
+      assetId,
+      asset.kind,
+      asset.group_name,
+      asset.name,
+      asset.acquired_on,
+      asset.cost,
+      asset.useful_life_months,
+      asset.expense_category_id,
+    ],
+  );
+}
+
 export async function deleteAsset(q, businessId, assetId) {
   await q.query('DELETE FROM assets WHERE business_id = $1 AND id = $2', [businessId, assetId]);
 }

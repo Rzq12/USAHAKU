@@ -157,41 +157,59 @@ const EMPTY_ASSET = {
   expense_category_id: '',
 };
 
-function AddAssetDrawer({ open, onClose, groups, openingDate }) {
+/** The form's shape for an existing asset; whole years show in years, as the workbook does. */
+function toForm(asset) {
+  const inYears = asset.useful_life_months % 12 === 0;
+  return {
+    kind: asset.kind,
+    group_name: asset.group_name,
+    name: asset.name,
+    acquired_on: asset.acquired_on,
+    cost: asset.cost,
+    life: String(inYears ? asset.useful_life_months / 12 : asset.useful_life_months),
+    lifeUnit: inYears ? 'years' : 'months',
+    expense_category_id: asset.expense_category_id,
+  };
+}
+
+/** Adds an asset, or edits `asset` when one is given. */
+function AssetFormDrawer({ open, onClose, asset, groups, openingDate }) {
   const categories = useCategories();
   const [form, setForm] = useState(EMPTY_ASSET);
   useEffect(() => {
-    if (open) setForm(EMPTY_ASSET);
-  }, [open]);
+    if (open) setForm(asset ? toForm(asset) : EMPTY_ASSET);
+  }, [open, asset]);
   const months = Number(form.life) * (form.lifeUnit === 'years' ? 12 : 1);
   // Amortization lands in profit and loss, so only operating expense categories qualify.
+  // An edited asset keeps its current category in the list even if it was archived since.
   const expenseCategories = useMemo(
     () =>
       categories.data && {
         items: categories.data.items.filter(
           (category) =>
-            category.type === 'expense' &&
-            category.pl_group !== 'inventory' &&
-            category.cash_activity === 'operating',
+            category.id === asset?.expense_category_id ||
+            (category.type === 'expense' &&
+              !category.is_archived &&
+              category.pl_group !== 'inventory' &&
+              category.cash_activity === 'operating'),
         ),
       },
-    [categories.data],
+    [categories.data, asset],
   );
-  const action = useCallback(
-    () =>
-      api.post('/assets', {
-        kind: form.kind,
-        group_name: form.group_name,
-        name: form.name,
-        acquired_on: form.acquired_on,
-        cost: form.cost,
-        useful_life_months: months > 0 ? months : null,
-        expense_category_id: form.expense_category_id || null,
-      }),
-    [form, months],
-  );
+  const action = useCallback(() => {
+    const payload = {
+      kind: form.kind,
+      group_name: form.group_name,
+      name: form.name,
+      acquired_on: form.acquired_on,
+      cost: form.cost,
+      useful_life_months: months > 0 ? months : null,
+      expense_category_id: form.expense_category_id || null,
+    };
+    return asset ? api.put(`/assets/${asset.id}`, payload) : api.post('/assets', payload);
+  }, [form, months, asset]);
   const { submit, pending, fieldErrors, formError } = useSubmit(action, {
-    success: 'Harta ditambahkan.',
+    success: asset ? 'Harta disimpan.' : 'Harta ditambahkan.',
     onDone: () => {
       notifyChanged();
       onClose();
@@ -203,7 +221,7 @@ function AddAssetDrawer({ open, onClose, groups, openingDate }) {
     <Drawer
       open={open}
       onClose={onClose}
-      title="Tambah harta"
+      title={asset ? 'Ubah harta' : 'Tambah harta'}
       footer={
         <button type="button" className="btn-primary" disabled={pending} onClick={() => submit()}>
           {pending ? 'Menyimpan...' : 'Simpan harta'}
@@ -313,7 +331,7 @@ function AddAssetDrawer({ open, onClose, groups, openingDate }) {
   );
 }
 
-function AssetDrawer({ asset, onClose, onDelete }) {
+function AssetDrawer({ asset, onClose, onEdit, onDelete }) {
   const facts = asset
     ? [
         ['Jenis', KINDS[asset.kind].label],
@@ -336,9 +354,14 @@ function AssetDrawer({ asset, onClose, onDelete }) {
       onClose={onClose}
       title={asset?.name ?? ''}
       footer={
-        <button type="button" className="btn-ghost mr-auto text-danger-deep" onClick={onDelete}>
-          Hapus harta
-        </button>
+        <>
+          <button type="button" className="btn-ghost mr-auto text-danger-deep" onClick={onDelete}>
+            Hapus harta
+          </button>
+          <button type="button" className="btn-primary" onClick={onEdit}>
+            Ubah harta
+          </button>
+        </>
       }
     >
       <dl className="divide-y divide-hairline-soft">
@@ -417,7 +440,8 @@ export default function Assets() {
   const business = useFetch('/business');
   const assets = useFetch(`/assets${query({ as_of: asOf })}`);
   const [editingOpening, setEditingOpening] = useState(false);
-  const [adding, setAdding] = useState(false);
+  // { asset: null } adds, { asset } edits, null is closed.
+  const [formFor, setFormFor] = useState(null);
   const [selected, setSelected] = useState(null);
   const [confirming, setConfirming] = useState(null);
   const groups = useMemo(() => groupAssets(assets.data?.items ?? []), [assets.data]);
@@ -429,7 +453,7 @@ export default function Assets() {
         title="Saldo Awal dan Harta"
         description="Harta tetap dan biaya dibayar dimuka. Penyusutan dan amortisasinya masuk laporan secara otomatis."
         actions={
-          <button type="button" className="btn-primary" onClick={() => setAdding(true)}>
+          <button type="button" className="btn-primary" onClick={() => setFormFor({ asset: null })}>
             Tambah harta
           </button>
         }
@@ -469,15 +493,20 @@ export default function Assets() {
           business={business.data}
         />
       )}
-      <AddAssetDrawer
-        open={adding}
-        onClose={() => setAdding(false)}
+      <AssetFormDrawer
+        open={Boolean(formFor)}
+        asset={formFor?.asset ?? null}
+        onClose={() => setFormFor(null)}
         groups={groupNames}
         openingDate={business.data?.opening_date}
       />
       <AssetDrawer
         asset={selected}
         onClose={() => setSelected(null)}
+        onEdit={() => {
+          setFormFor({ asset: selected });
+          setSelected(null);
+        }}
         onDelete={() => {
           setConfirming(selected);
           setSelected(null);
