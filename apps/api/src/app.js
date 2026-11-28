@@ -11,6 +11,7 @@ import { requireAuth } from './middleware/auth.js';
 import { authRouter } from './routes/auth.js';
 import { businessRouter } from './routes/settings.js';
 import { accountsRouter } from './routes/accounts.js';
+import { assetsRouter } from './routes/assets.js';
 import { categoriesRouter, rulesRouter, tagsRouter } from './routes/categories.js';
 import { transactionsRouter } from './routes/transactions.js';
 import { productsRouter, salesRouter } from './routes/commerce.js';
@@ -32,6 +33,7 @@ export function createApp() {
   authenticated.use(requireAuth);
   authenticated.use('/business', businessRouter);
   authenticated.use('/accounts', accountsRouter);
+  authenticated.use('/assets', assetsRouter);
   authenticated.use('/categories', categoriesRouter);
   authenticated.use('/category-rules', rulesRouter);
   authenticated.use('/tags', tagsRouter);

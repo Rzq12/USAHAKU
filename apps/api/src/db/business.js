@@ -3,6 +3,16 @@ export async function getBusiness(q, businessId) {
   return rows[0];
 }
 
+export async function updateOpening(q, businessId, b) {
+  const { rows } = await q.query(
+    `UPDATE businesses SET opening_date = $2, opening_capital = $3, capital_name = $4,
+       updated_at = now()
+     WHERE id = $1 RETURNING *`,
+    [businessId, b.opening_date, b.opening_capital, b.capital_name],
+  );
+  return rows[0];
+}
+
 export async function updateBusiness(q, businessId, b) {
   const { rows } = await q.query(
     `UPDATE businesses SET name = $2, address = $3, phone = $4, period_start_day = $5,

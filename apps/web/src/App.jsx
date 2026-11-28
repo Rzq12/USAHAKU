@@ -15,6 +15,7 @@ const SaleDetail = lazy(() => import('./pages/SaleDetail.jsx'));
 const NewExpense = lazy(() => import('./pages/NewExpense.jsx'));
 const Products = lazy(() => import('./pages/Products.jsx'));
 const Accounts = lazy(() => import('./pages/Accounts.jsx'));
+const Assets = lazy(() => import('./pages/Assets.jsx'));
 const Reports = lazy(() => import('./pages/Reports.jsx'));
 const Categories = lazy(() => import('./pages/Categories.jsx'));
 const DataExport = lazy(() => import('./pages/DataExport.jsx'));
@@ -58,6 +59,7 @@ function SignedInRoutes() {
           <Route path="pengeluaran/baru" element={<NewExpense />} />
           <Route path="produk" element={<Products />} />
           <Route path="akun" element={<Accounts />} />
+          <Route path="harta" element={<Assets />} />
           <Route path="kategori" element={<Categories />} />
           <Route path="laporan" element={<Reports />} />
           <Route path="ekspor" element={<DataExport />} />
