@@ -1,6 +1,9 @@
 import ExcelJS from 'exceljs';
 import { pool } from '../db/pool.js';
 import * as reports from '../db/reports.js';
+import { listAssets } from '../db/assets.js';
+import { getBusiness } from '../db/business.js';
+import { accumulatedAmortization, amortizationBetween, bookValue } from '../lib/amortization.js';
 import { addDays, daysBetween } from '../lib/dates.js';
 import { formatDateLong, formatPrintedAt } from '../lib/format.js';
 import { toCsv } from '../lib/csv.js';
@@ -14,11 +17,42 @@ const periodLabel = (from, to) =>
 const ACCRUAL_BASIS = 'Basis akrual, dalam Rupiah';
 const LABEL_AMOUNT_COLUMNS = [text('label', 'Keterangan'), money('amount', 'Jumlah')];
 
+/*
+ * Depreciation and amortization of the asset register are expenses without cash: they are
+ * computed for the range and added to their expense category, next to the cash expenses.
+ */
+function withAmortization(expenses, assets, from, to, openingDate) {
+  const byCategory = new Map(expenses.map((row) => [row.category_id, { ...row }]));
+  for (const asset of assets) {
+    const amount = amortizationBetween(asset, from, to, openingDate);
+    if (amount === 0) continue;
+    const row = byCategory.get(asset.expense_category_id) ?? {
+      category_id: asset.expense_category_id,
+      name: asset.expense_category_name,
+      pl_group: asset.expense_pl_group,
+      parent_name: asset.expense_parent_name,
+      amount: 0,
+    };
+    row.amount += amount;
+    byCategory.set(asset.expense_category_id, row);
+  }
+  return [...byCategory.values()].sort((a, b) => b.amount - a.amount);
+}
+
+async function recognizedExpenses(businessId, from, to) {
+  const [cashExpenses, assets, business] = await Promise.all([
+    reports.expensesByCategory(pool, businessId, from, to),
+    listAssets(pool, businessId, to),
+    getBusiness(pool, businessId),
+  ]);
+  return withAmortization(cashExpenses, assets, from, to, business.opening_date);
+}
+
 async function profitLossFigures(businessId, from, to) {
   const [sales, other, expenses] = await Promise.all([
     reports.salesTotals(pool, businessId, from, to),
     reports.otherIncome(pool, businessId, from, to),
-    reports.expensesByCategory(pool, businessId, from, to),
+    recognizedExpenses(businessId, from, to),
   ]);
   const operating = expenses.filter((row) => row.pl_group === 'operating_expense');
   const otherExpense = expenses.filter((row) => row.pl_group === 'other_expense');
@@ -394,7 +428,7 @@ async function salesByProduct(businessId, { from, to }) {
 }
 
 async function expenseByCategory(businessId, { from, to }) {
-  const expenses = await reports.expensesByCategory(pool, businessId, from, to);
+  const expenses = await recognizedExpenses(businessId, from, to);
   const counted = expenses.filter((row) => row.pl_group !== 'inventory');
   const total = counted.reduce((sum, row) => sum + row.amount, 0);
   return {
@@ -451,13 +485,61 @@ function nonOperatingTotals(rows) {
   };
 }
 
-function balanceSheetNotes(totals, year, hasFinancing) {
+/** Sums per balance sheet line (group_name), in the order the groups first appear. */
+function sumByGroup(assets, value) {
+  const groups = new Map();
+  for (const asset of assets) {
+    groups.set(asset.group_name, (groups.get(asset.group_name) ?? 0) + value(asset));
+  }
+  return [...groups.entries()].map(([name, amount]) => ({ name, amount }));
+}
+
+/*
+ * Register figures on one date. Opening value is what the register adds to the opening
+ * position: book value the day before the opening date, or cost when there is none.
+ */
+function registerTotals(assets, asOf, openingDate) {
+  const prepaid = assets.filter((asset) => asset.kind === 'prepaid');
+  const fixed = assets.filter((asset) => asset.kind === 'fixed');
+  const sum = (rows) => rows.reduce((total, row) => total + row.amount, 0);
+  const prepaidGroups = sumByGroup(prepaid, (asset) => bookValue(asset, asOf));
+  const fixedGroups = sumByGroup(fixed, (asset) => asset.cost);
+  const depreciationGroups = sumByGroup(fixed, (asset) => -accumulatedAmortization(asset, asOf));
+  const openingValue = assets.reduce(
+    (total, asset) =>
+      total + (openingDate ? bookValue(asset, addDays(openingDate, -1)) : asset.cost),
+    0,
+  );
+  return {
+    prepaidGroups,
+    fixedGroups,
+    depreciationGroups,
+    prepaid: sum(prepaidGroups),
+    fixedCost: sum(fixedGroups),
+    accumulated: sum(depreciationGroups),
+    openingValue,
+  };
+}
+
+function balanceSheetNotes(totals, year, hasFinancing, context) {
   const notes = [
     'Persediaan dinilai dengan harga modal produk saat ini.',
     `Laba Tahun Berjalan dihitung sejak 1 Januari ${year}. Laba sebelum tanggal itu masuk Laba Ditahan.`,
   ];
-  if (totals.fixed_assets !== 0) {
-    notes.push('Harta tetap dicatat sebesar harga beli, tanpa penyusutan.');
+  if (context.purchasedFixedAssets !== 0) {
+    notes.push(
+      'Harta tetap dari kategori pembelian peralatan dicatat sebesar harga beli, tanpa penyusutan.',
+    );
+  }
+  if (context.hasRegister) {
+    notes.push(
+      'Penyusutan dan amortisasi dihitung garis lurus dari daftar harta, diakui setiap akhir bulan, dibulatkan ke rupiah.',
+    );
+  }
+  if (context.openingDate && context.hasOpeningCapital) {
+    notes.push(
+      `Saldo awal per ${formatDateLong(context.openingDate)}. Laba Ditahan awal dihitung dari harta awal dikurangi modal awal.`,
+    );
   }
   if (hasFinancing) {
     notes.push(
@@ -476,9 +558,14 @@ function balanceSheetNotes(totals, year, hasFinancing) {
 const lineIfAny = (label, amount, extra = {}) =>
   amount === 0 ? [] : [{ label, amount, ...extra }];
 
-function balanceSheetSections(accounts, totals) {
+function balanceSheetSections(accounts, totals, register, capitalLabel) {
   const section = (title, rows) => ({ title, plain: true, columns: LABEL_AMOUNT_COLUMNS, rows });
   const total = (label, amount, double = false) => ({ label, amount, emphasis: true, double });
+  const groupLines = (groups, prefix = '') =>
+    groups
+      .filter((group) => group.amount !== 0)
+      .map((group) => ({ label: `${prefix}${group.name}`, amount: group.amount, indent: true }));
+  const hasFixed = totals.purchased_fixed_assets !== 0 || register.fixedCost !== 0;
   return [
     section('Harta', [
       ...accounts
@@ -487,13 +574,16 @@ function balanceSheetSections(accounts, totals) {
       total('Total Kas dan Bank', totals.cash),
       ...lineIfAny('Piutang Usaha', totals.receivables),
       ...lineIfAny('Persediaan Barang', totals.inventory),
+      ...groupLines(register.prepaidGroups),
       total('Total Harta Lancar', totals.current_assets),
-      ...(totals.fixed_assets === 0
-        ? []
-        : [
-            { label: 'Harta Tetap Berwujud', amount: totals.fixed_assets, indent: true },
+      ...(hasFixed
+        ? [
+            ...lineIfAny('Harta Tetap Berwujud', totals.purchased_fixed_assets, { indent: true }),
+            ...groupLines(register.fixedGroups),
+            ...groupLines(register.depreciationGroups, 'Akumulasi Penyusutan '),
             total('Total Harta Tetap', totals.fixed_assets),
-          ]),
+          ]
+        : []),
       total('Total Harta', totals.total_assets, true),
     ]),
     section('Kewajiban', [
@@ -502,7 +592,7 @@ function balanceSheetSections(accounts, totals) {
       total('Total Kewajiban', totals.total_liabilities),
     ]),
     section('Modal', [
-      { label: 'Modal Awal', amount: totals.opening_equity },
+      { label: capitalLabel, amount: totals.opening_equity },
       ...lineIfAny('Modal Disetor', totals.paid_in_capital),
       ...lineIfAny('Prive', totals.drawings),
       { label: 'Laba Ditahan', amount: totals.retained_earnings },
@@ -514,27 +604,40 @@ function balanceSheetSections(accounts, totals) {
   ];
 }
 
-/** Position on one date (`to`). Profit splits at 1 January of that date's year, like Zahir. */
+/*
+ * Position on one date (`to`). Profit splits at 1 January of that date's year, like Zahir.
+ * With an opening capital, the opening position splits into that capital and opening
+ * retained earnings, which are derived (opening assets minus capital), never typed in.
+ */
 async function balanceSheet(businessId, { to }) {
   const year = Number(to.slice(0, 4));
-  const [figures, retained, currentYear] = await Promise.all([
+  const [figures, retained, currentYear, assets, business] = await Promise.all([
     reports.balanceSheetFigures(pool, businessId, to),
     profitLossFigures(businessId, EARLIEST_DATE, `${year - 1}-12-31`),
     profitLossFigures(businessId, `${year}-01-01`, to),
+    listAssets(pool, businessId, to),
+    getBusiness(pool, businessId),
   ]);
   const other = nonOperatingTotals(figures.non_operating);
+  const register = registerTotals(assets, to, business.opening_date);
   const cash = figures.accounts.reduce((sum, account) => sum + account.balance, 0);
-  const currentAssets = cash + figures.receivables + figures.inventory;
-  const totalAssets = currentAssets + other.fixed_assets;
+  const currentAssets = cash + figures.receivables + figures.inventory + register.prepaid;
+  const fixedAssets = other.fixed_assets + register.fixedCost + register.accumulated;
+  const totalAssets = currentAssets + fixedAssets;
   const totalLiabilities = figures.payables + other.loans;
-  const openingEquity =
+  const openingAssets =
     figures.accounts.reduce((sum, account) => sum + account.opening_balance, 0) +
-    figures.opening_stock;
+    figures.opening_stock +
+    register.openingValue;
+  const hasOpeningCapital = business.opening_capital !== null;
+  const openingEquity = hasOpeningCapital ? business.opening_capital : openingAssets;
+  const retainedEarnings =
+    (hasOpeningCapital ? openingAssets - business.opening_capital : 0) + retained.net_profit;
   const equityBeforeAdjustment =
     openingEquity +
     other.paid_in_capital +
     other.drawings +
-    retained.net_profit +
+    retainedEarnings +
     currentYear.net_profit;
   const adjustment = totalAssets - totalLiabilities - equityBeforeAdjustment;
   const totalEquity = equityBeforeAdjustment + adjustment;
@@ -542,8 +645,12 @@ async function balanceSheet(businessId, { to }) {
     cash,
     receivables: figures.receivables,
     inventory: figures.inventory,
+    prepaid_expenses: register.prepaid,
     current_assets: currentAssets,
-    fixed_assets: other.fixed_assets,
+    purchased_fixed_assets: other.fixed_assets,
+    fixed_assets_cost: other.fixed_assets + register.fixedCost,
+    accumulated_depreciation: register.accumulated,
+    fixed_assets: fixedAssets,
     total_assets: totalAssets,
     payables: figures.payables,
     loans: other.loans,
@@ -551,7 +658,7 @@ async function balanceSheet(businessId, { to }) {
     opening_equity: openingEquity,
     paid_in_capital: other.paid_in_capital,
     drawings: other.drawings,
-    retained_earnings: retained.net_profit,
+    retained_earnings: retainedEarnings,
     current_year_profit: currentYear.net_profit,
     adjustment,
     total_equity: totalEquity,
@@ -562,8 +669,18 @@ async function balanceSheet(businessId, { to }) {
     subtitle: `Per ${formatDateLong(to)}`,
     basis: ACCRUAL_BASIS,
     as_of: to,
-    sections: balanceSheetSections(figures.accounts, totals),
-    notes: balanceSheetNotes(totals, year, other.has_financing),
+    sections: balanceSheetSections(
+      figures.accounts,
+      totals,
+      register,
+      hasOpeningCapital ? business.capital_name || 'Modal Pemilik' : 'Modal Awal',
+    ),
+    notes: balanceSheetNotes(totals, year, other.has_financing, {
+      purchasedFixedAssets: other.fixed_assets,
+      hasRegister: assets.length > 0,
+      openingDate: business.opening_date,
+      hasOpeningCapital,
+    }),
     totals,
     is_empty: Object.values(totals).every((value) => value === 0),
   };

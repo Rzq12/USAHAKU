@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { handle } from '../lib/http.js';
-import { optionalText, parse } from '../lib/schemas.js';
+import { dateString, nonNegativeAmount, optionalText, parse } from '../lib/schemas.js';
 import * as business from '../services/business.js';
+import { setOpening } from '../services/assets.js';
 
 export const businessRouter = Router();
 
@@ -16,6 +17,17 @@ const businessSchema = z.object({
     .min(1, 'Tanggal awal periode harus antara 1 dan 28.')
     .max(28, 'Tanggal awal periode harus antara 1 dan 28.'),
 });
+
+const openingSchema = z.object({
+  opening_date: dateString.nullish().transform((value) => value ?? null),
+  opening_capital: nonNegativeAmount.nullish().transform((value) => value ?? null),
+  capital_name: optionalText(60),
+});
+
+businessRouter.put(
+  '/opening',
+  handle(async (req, res) => res.json(await setOpening(req.user, parse(openingSchema, req.body)))),
+);
 
 businessRouter.get(
   '/',
