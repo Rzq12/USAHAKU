@@ -225,6 +225,35 @@ async function createExpenseCategories(api, accounts) {
   };
 }
 
+/*
+ * The workbook's Beban accounts replace usahaku's default operating expense categories (Sewa,
+ * Listrik dan Utilitas, Gaji, ...), so the list matches the COA. A default that was used
+ * anyway is archived instead of deleted; system categories stay.
+ */
+async function dropDefaultExpenseCategories(api) {
+  const { items } = await api('GET', '/categories');
+  const defaults = items.filter(
+    (row) =>
+      row.type === 'expense' &&
+      row.pl_group === 'operating_expense' &&
+      !row.system_key &&
+      !row.parent_id &&
+      !/^Beban /i.test(row.name),
+  );
+  for (const category of defaults) {
+    if (Number(category.usage_count) === 0) {
+      try {
+        await api('DELETE', `/categories/${category.id}`);
+        continue;
+      } catch (error) {
+        if (!/ 409 /.test(error.message)) throw error;
+      }
+    }
+    await api('PUT', `/categories/${category.id}`, { is_archived: true });
+  }
+  return defaults.length;
+}
+
 function mostCommon(values) {
   const counts = new Map();
   for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
@@ -263,6 +292,8 @@ async function importWorkbook(file, api) {
       );
   if (alreadyImported) {
     console.log(`${owner.email} sudah berisi data: tidak mengimpor ulang, hanya memeriksa hasil.`);
+    const dropped = await dropDefaultExpenseCategories(api);
+    if (dropped > 0) console.log(`${dropped} kategori beban bawaan dirapikan sesuai COA.`);
     return { owner, openingDate, saleCount: 0, expenseCount: 0, adjustments, accounts };
   }
   if (!owner.existing) {
@@ -291,6 +322,7 @@ async function importWorkbook(file, api) {
   const sales = (await api('GET', '/categories')).items.find((row) => row.system_key === 'sales');
   await api('PUT', `/categories/${sales.id}`, { name: revenue.name });
   const categoryId = await createExpenseCategories(api, accounts);
+  await dropDefaultExpenseCategories(api);
 
   // Asset register: what the business owned before the opening date.
   await api('POST', '/assets', {
