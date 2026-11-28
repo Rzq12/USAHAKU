@@ -17,6 +17,7 @@ export const NAV_ITEMS = [
   { to: '/penjualan', label: 'Riwayat Penjualan', icon: 'cart' },
   { to: '/produk', label: 'Produk', icon: 'box' },
   { to: '/akun', label: 'Akun Kas', icon: 'wallet' },
+  { to: '/harta', label: 'Saldo Awal dan Harta', icon: 'ledger' },
   { to: '/kategori', label: 'Kategori', icon: 'tag' },
   { to: '/ekspor', label: 'Ekspor Data', icon: 'download' },
   { to: '/pengaturan', label: 'Pengaturan', icon: 'settings' },
