@@ -1,10 +1,18 @@
 const ASSET_COLUMNS = `a.id, a.kind, a.group_name, a.name, a.acquired_on, a.cost,
   a.useful_life_months, a.expense_category_id, c.name AS expense_category_name,
-  c.pl_group AS expense_pl_group, parent.name AS expense_parent_name`;
+  c.pl_group AS expense_pl_group, parent.name AS expense_parent_name,
+  p.id AS purchase_transaction_id, p.account_id AS paid_from_account_id,
+  pa.name AS paid_from_account_name, p.category_id AS purchase_category_id,
+  pc.name AS purchase_category_name`;
 
+/* The purchase is the live expense transaction the asset made (source_type 'asset'). */
 const ASSET_FROM = `assets a
   JOIN categories c ON c.id = a.expense_category_id AND c.business_id = a.business_id
-  LEFT JOIN categories parent ON parent.id = c.parent_id AND parent.business_id = c.business_id`;
+  LEFT JOIN categories parent ON parent.id = c.parent_id AND parent.business_id = c.business_id
+  LEFT JOIN transactions p ON p.business_id = a.business_id AND p.source_type = 'asset'
+    AND p.source_id = a.id AND p.deleted_at IS NULL
+  LEFT JOIN accounts pa ON pa.id = p.account_id AND pa.business_id = p.business_id
+  LEFT JOIN categories pc ON pc.id = p.category_id AND pc.business_id = p.business_id`;
 
 /** Assets owned on `asOf` (all of them when it is null), oldest first. */
 export async function listAssets(q, businessId, asOf = null) {
@@ -67,9 +75,13 @@ export async function deleteAsset(q, businessId, assetId) {
   await q.query('DELETE FROM assets WHERE business_id = $1 AND id = $2', [businessId, assetId]);
 }
 
+/** Latest acquisition among assets of the opening position (the ones without a purchase). */
 export async function latestAcquisition(q, businessId) {
   const { rows } = await q.query(
-    'SELECT MAX(acquired_on) AS latest FROM assets WHERE business_id = $1',
+    `SELECT MAX(a.acquired_on) AS latest FROM assets a
+     WHERE a.business_id = $1 AND NOT EXISTS (
+       SELECT 1 FROM transactions p WHERE p.business_id = a.business_id
+         AND p.source_type = 'asset' AND p.source_id = a.id AND p.deleted_at IS NULL)`,
     [businessId],
   );
   return rows[0].latest;

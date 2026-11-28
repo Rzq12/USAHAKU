@@ -2,14 +2,16 @@
  * Reports read from here. Revenue comes from sales, never from income transactions linked to sales.
  * Transfers and debt payments never reach profit and loss (BR-002, BR-008).
  * Investing and financing categories (capital, loans, equipment) are cash movements too:
- * they appear in cash flow but never in profit and loss or tax turnover.
+ * they appear in cash flow but never in profit and loss or tax turnover. Asset purchases
+ * (source_type 'asset') are in cash flow only: the asset register carries their cost and
+ * depreciation into the balance sheet and profit and loss.
  */
 
 const EXPENSE_LINES = `
   SELECT t.category_id, t.occurred_on AS on_date, t.amount
   FROM transactions t
   WHERE t.business_id = $1 AND t.type = 'expense' AND t.deleted_at IS NULL AND NOT t.is_excluded
-    AND t.source_type <> 'payable_payment'
+    AND t.source_type NOT IN ('payable_payment', 'asset')
     AND t.occurred_on BETWEEN $2 AND $3
   UNION ALL
   SELECT d.category_id, d.issue_date AS on_date, d.amount
@@ -176,14 +178,16 @@ export async function balanceSheetFigures(q, businessId, asOf) {
       [businessId, asOf],
     ),
     // Investing and financing amounts. A payable bill counts when issued; paying it later
-    // only settles the debt, so payable payments are left out here.
+    // only settles the debt, so payable payments are left out here. So are asset purchases:
+    // the register carries those.
     q.query(
       `SELECT c.cash_activity AS activity, c.type, c.name, SUM(x.amount) AS amount
        FROM (
          SELECT t.category_id, t.amount
          FROM transactions t
          WHERE t.business_id = $1 AND t.type IN ('income', 'expense') AND t.deleted_at IS NULL
-           AND NOT t.is_excluded AND t.source_type <> 'payable_payment' AND t.occurred_on <= $2
+           AND NOT t.is_excluded AND t.source_type NOT IN ('payable_payment', 'asset')
+           AND t.occurred_on <= $2
          UNION ALL
          SELECT d.category_id, d.amount
          FROM debts d

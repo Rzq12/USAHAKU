@@ -14,6 +14,8 @@ const SAME_ACCOUNT = 'Akun asal dan tujuan harus berbeda.';
 const SYSTEM_SOURCE =
   'Transaksi ini dibuat otomatis. Ubah nominal, akun, atau tanggalnya dari catatan asalnya.';
 const NO_DELETE_SOURCE = 'Transaksi ini dibuat dari penjualan atau pembayaran. Batalkan dari sana.';
+const ASSET_SOURCE =
+  'Transaksi ini adalah pembelian harta. Ubah atau hapus dari halaman Saldo Awal dan Harta.';
 const FIXED_CATEGORY = 'Kategori transaksi otomatis ini tidak bisa diubah.';
 const NO_CONTACT = 'Kontak tidak bisa dipilih lagi.';
 /* Sales and stock purchases drive profit; their category decides how profit is counted. */
@@ -122,6 +124,17 @@ export async function updateTransaction(actor, transactionId, body) {
     };
 
     checkContact(next.contact_id, before);
+    // A purchase's amount, date, account, and category are the asset's: only its note and tags change here.
+    if (
+      before.source_type === 'asset' &&
+      (next.amount !== before.amount ||
+        next.account_id !== before.account_id ||
+        next.occurred_on !== before.occurred_on ||
+        next.category_id !== before.category_id ||
+        next.is_excluded !== before.is_excluded)
+    ) {
+      throw unprocessable(ASSET_SOURCE, 'SYSTEM_TRANSACTION');
+    }
     if (before.source_type !== 'manual') {
       const money = next.amount !== before.amount || next.account_id !== before.account_id;
       if (money || next.occurred_on !== before.occurred_on) {
@@ -166,6 +179,7 @@ export async function deleteTransaction(actor, transactionId) {
     if (['sale', 'receivable_payment', 'payable_payment'].includes(transaction.source_type)) {
       throw conflict(NO_DELETE_SOURCE, 'SYSTEM_TRANSACTION');
     }
+    if (transaction.source_type === 'asset') throw conflict(ASSET_SOURCE, 'SYSTEM_TRANSACTION');
     await transactions.softDeleteTransaction(client, actor.business_id, transactionId);
     await writeAudit(client, {
       businessId: actor.business_id,

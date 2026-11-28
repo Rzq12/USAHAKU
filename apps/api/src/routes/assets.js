@@ -21,6 +21,9 @@ const assetSchema = z.object({
     .min(1, 'Minimal 1 bulan.')
     .max(1200, 'Maksimal 1200 bulan.'),
   expense_category_id: uuid,
+  // Bought on or after the opening date: the cash account that paid, and the purchase category.
+  paid_from_account_id: uuid.nullable().default(null),
+  purchase_category_id: uuid.nullable().default(null),
 });
 const listQuery = z.object({ as_of: dateString.optional() });
 

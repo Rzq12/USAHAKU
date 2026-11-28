@@ -11,7 +11,8 @@
  * the workbook before finishing.
  *
  * The owner signs in with ZAHIR_OWNER_EMAIL / ZAHIR_OWNER_PASSWORD from .env; when they are
- * missing, the script makes them up and appends them to .env (which git ignores).
+ * missing, the script makes them up and appends them to .env (which git ignores). To import
+ * into an empty business someone already signed up for instead, set ZAHIR_INTO_EMAIL.
  */
 import { appendFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -24,6 +25,8 @@ const { createApp } = await import('../src/app.js');
 const { pool } = await import('../src/db/pool.js');
 const { migrate } = await import('../src/db/migrate.js');
 const { addDays } = await import('../src/lib/dates.js');
+const { hashToken, sessionExpiry, SESSION_COOKIE } = await import('../src/middleware/auth.js');
+const { insertSession, deleteSessionByHash } = await import('../src/db/users.js');
 
 const ENV_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../.env');
 const MONTHS = [
@@ -128,7 +131,7 @@ function journal(workbook, sheetName) {
 
 function apiClient(baseUrl) {
   let cookie = '';
-  return async (method, url, json) => {
+  const api = async (method, url, json) => {
     const response = await fetch(`${baseUrl}/api${url}`, {
       method,
       headers: {
@@ -146,7 +149,36 @@ function apiClient(baseUrl) {
     }
     return body;
   };
+  api.useSession = (token) => {
+    cookie = `${SESSION_COOKIE}=${token}`;
+  };
+  return api;
 }
+
+/*
+ * ZAHIR_INTO_EMAIL imports into the business of a user who already signed up, without their
+ * password: the script opens a session for them straight in the database (it has database
+ * access anyway) and closes it when done. It only imports into a business that is still empty.
+ */
+async function existingOwner(email, api) {
+  const { rows } = await pool.query(
+    `SELECT u.id, u.business_id,
+       EXISTS (SELECT 1 FROM transactions t WHERE t.business_id = u.business_id)
+         OR EXISTS (SELECT 1 FROM sales s WHERE s.business_id = u.business_id)
+         OR EXISTS (SELECT 1 FROM assets a WHERE a.business_id = u.business_id)
+         OR b.opening_date IS NOT NULL AS has_data
+     FROM users u JOIN businesses b ON b.id = u.business_id WHERE lower(u.email) = lower($1)`,
+    [email],
+  );
+  if (!rows[0]) throw new Error(`Tidak ada pengguna dengan email ${email}.`);
+  const token = randomBytes(32).toString('hex');
+  await insertSession(pool, rows[0].id, hashToken(token), sessionExpiry());
+  closeSession = () => deleteSessionByHash(pool, hashToken(token));
+  api.useSession(token);
+  return { email, existing: true, hasData: rows[0].has_data, created: false };
+}
+
+let closeSession = async () => {};
 
 async function ownerCredentials() {
   const email = process.env.ZAHIR_OWNER_EMAIL || 'anno@usahaku.test';
@@ -220,21 +252,27 @@ async function importWorkbook(file, api) {
   const adjustments = entries
     .filter((entry) => !entry.lines.some(isCash))
     .flatMap((entry) => entry.lines.filter((line) => line.debit));
-  const owner = await ownerCredentials();
-  const signedIn = await api('POST', '/auth/login', owner).then(
-    () => true,
-    () => false,
-  );
-  if (signedIn) {
-    console.log(`${owner.email} sudah ada: tidak mengimpor ulang, hanya memeriksa hasil.`);
+  const owner = process.env.ZAHIR_INTO_EMAIL
+    ? await existingOwner(process.env.ZAHIR_INTO_EMAIL, api)
+    : await ownerCredentials();
+  const alreadyImported = owner.existing
+    ? owner.hasData
+    : await api('POST', '/auth/login', owner).then(
+        () => true,
+        () => false,
+      );
+  if (alreadyImported) {
+    console.log(`${owner.email} sudah berisi data: tidak mengimpor ulang, hanya memeriksa hasil.`);
     return { owner, openingDate, saleCount: 0, expenseCount: 0, adjustments, accounts };
   }
-  await api('POST', '/auth/register', {
-    business_name: businessName,
-    name: capital.name.replace(/^Modal\s+/i, ''),
-    email: owner.email,
-    password: owner.password,
-  });
+  if (!owner.existing) {
+    await api('POST', '/auth/register', {
+      business_name: businessName,
+      name: capital.name.replace(/^Modal\s+/i, ''),
+      email: owner.email,
+      password: owner.password,
+    });
+  }
 
   // Opening position on the first day of the journal month.
   const kas = (await api('GET', '/accounts')).items.find((row) => row.name === 'Kas');
@@ -399,6 +437,7 @@ async function main() {
       process.exitCode = 1;
     }
   } finally {
+    await closeSession();
     await new Promise((resolve) => server.close(resolve));
     await pool.end();
   }
