@@ -193,6 +193,33 @@ test('Arus Kas October 2026 equals Zahir: no amortization, only cash', async () 
   assert.equal(amountOf(operating, 'Beban Gaji'), -800_000);
 });
 
+test('Perubahan Ekuitas October 2026 equals Zahir and closes on the balance sheet', async () => {
+  const equity = await report('/reports/equity-changes?from=2026-10-01&to=2026-10-31');
+  assert.deepEqual(
+    rowsOf(equity).map((row) => [row.label, row.amount]),
+    [
+      ['Modal Awal Bapak Candra', 20_430_000],
+      ['Saldo Laba Awal', 7_256_500],
+      ['Laba Bersih Periode Ini', 2_751_833],
+      ['Prive', 0],
+      ['Penambahan Modal', 10_008_333],
+      ['Modal Akhir Bapak Candra', 30_438_333],
+    ],
+  );
+  assert.equal(equity.totals.adjustment, 0);
+  const balance = await report('/reports/balance-sheet?from=2026-10-01&to=2026-10-31');
+  assert.equal(equity.totals.closing_equity, amountOf(balance, 'Total Modal'));
+});
+
+test('Perubahan Ekuitas over two months carries profit into the closing capital', async () => {
+  const equity = await report('/reports/equity-changes?from=2026-10-01&to=2026-11-30');
+  const pl = await report('/reports/profit-loss?from=2026-10-01&to=2026-11-30');
+  const balance = await report('/reports/balance-sheet?from=2026-01-01&to=2026-11-30');
+  assert.equal(amountOf(equity, 'Saldo Laba Awal'), 7_256_500);
+  assert.equal(amountOf(equity, 'Laba Bersih Periode Ini'), pl.totals.net_profit);
+  assert.equal(equity.totals.closing_equity, amountOf(balance, 'Total Modal'));
+});
+
 test('the asset register reports book values computed on the requested date', async () => {
   const list = await report('/assets?as_of=2026-10-31');
   const rent = list.items.find((item) => item.kind === 'prepaid');

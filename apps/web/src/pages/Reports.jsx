@@ -21,6 +21,7 @@ import {
 const REPORTS = [
   { value: 'balance-sheet', label: 'Neraca' },
   { value: 'profit-loss', label: 'Laba Rugi' },
+  { value: 'equity-changes', label: 'Perubahan Ekuitas' },
   { value: 'cash-flow', label: 'Arus Kas' },
   { value: 'sales-by-product', label: 'Penjualan per Produk' },
   { value: 'expense-by-category', label: 'Pengeluaran per Kategori' },
@@ -226,7 +227,8 @@ export default function Reports() {
         <div>
           <h2 className="text-h5">Laporan keuangan lengkap</h2>
           <p className="num text-body-sm text-slate">
-            Neraca per {formatDate(range.to)}, Laba Rugi dan Arus Kas {formatDate(range.from)} s.d.{' '}
+            Neraca per {formatDate(range.to)}, Laba Rugi, Perubahan Ekuitas, dan Arus Kas{' '}
+            {formatDate(range.from)} s.d.{' '}
             {formatDate(range.to)}, dalam satu file.
           </p>
         </div>
