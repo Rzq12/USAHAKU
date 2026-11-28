@@ -3,9 +3,9 @@
  *
  *   npm run import:zahir -w apps/api -- "<path to workbook.xlsx>"
  *
- * Reads only inputs: the opening position (sheet COA, the last two columns: saldo awal of the
- * journal month), the asset list (sheet Daftar-daftar), and the month's journal (sheet
- * Oktober). Everything goes in through the usahaku API, so the same validation applies as in
+ * Reads only inputs: the opening position (sheet COA, the saldo awal columns of the journal
+ * month), the asset list (sheet Daftar-daftar), and the month's journal (the sheet named after
+ * the month). Everything goes in through the usahaku API, so the same validation applies as in
  * the app. Month-end adjusting entries (rent amortization, depreciation) and opening retained
  * earnings are NOT imported: usahaku computes them, and this script checks the result against
  * the workbook before finishing.
@@ -13,6 +13,10 @@
  * The owner signs in with ZAHIR_OWNER_EMAIL / ZAHIR_OWNER_PASSWORD from .env; when they are
  * missing, the script makes them up and appends them to .env (which git ignores). To import
  * into an empty business someone already signed up for instead, set ZAHIR_INTO_EMAIL.
+ *
+ * ZAHIR_MONTH picks the journal sheet and the matching "SALDO AWAL 1 <bulan>" columns of the
+ * COA (default Oktober). ZAHIR_REPLACE_JOURNAL=1, together with ZAHIR_INTO_EMAIL, first
+ * deletes an earlier import's sales and transactions so that month replaces it.
  */
 import { appendFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -101,14 +105,25 @@ function assetList(workbook) {
   return { equipment, yearlyRent: rupiah(rows[rentHeader + 1][0]) };
 }
 
-/** Chart of accounts with the opening balance of the journal month (the last two columns). */
-function chartOfAccounts(workbook) {
+/** Chart of accounts with the opening balance of the journal month ("SALDO AWAL 1 OKT"). */
+function chartOfAccounts(workbook, month) {
   const rows = rowsOf(workbook, 'COA');
   const header = rows.findIndex((row) => row[0] === 'KODE AKUN');
+  const column = rows[header].findIndex(
+    (value) =>
+      typeof value === 'string' &&
+      new RegExp(`SALDO AWAL 1 ${month.slice(0, 3)}`, 'i').test(value),
+  );
+  if (column < 0) throw new Error(`Kolom "SALDO AWAL 1 ${month}" tidak ada di COA.`);
   const accounts = [];
   for (const row of rows.slice(header + 2)) {
     if (row[0] === 'Total' || row[0] === null) break;
-    accounts.push({ code: String(row[0]), name: row[1], debit: row[5], credit: row[6] });
+    accounts.push({
+      code: String(row[0]),
+      name: row[1],
+      debit: row[column],
+      credit: row[column + 1],
+    });
   }
   return { businessName: rows[0][0], accounts };
 }
@@ -175,7 +190,64 @@ async function existingOwner(email, api) {
   await insertSession(pool, rows[0].id, hashToken(token), sessionExpiry());
   closeSession = () => deleteSessionByHash(pool, hashToken(token));
   api.useSession(token);
-  return { email, existing: true, hasData: rows[0].has_data, created: false };
+  return {
+    email,
+    existing: true,
+    businessId: rows[0].business_id,
+    hasData: rows[0].has_data,
+    created: false,
+  };
+}
+
+/*
+ * ZAHIR_REPLACE_JOURNAL=1 (with ZAHIR_INTO_EMAIL) deletes the business's sales and cash
+ * transactions so another month's journal can go in. Assets, categories and products stay.
+ * It stops when the business has records this script never creates (debts, invoices, asset
+ * purchases), so it only ever removes an earlier import.
+ */
+async function clearJournal(businessId) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `SELECT EXISTS (SELECT 1 FROM debts WHERE business_id = $1)
+           OR EXISTS (SELECT 1 FROM invoices WHERE business_id = $1)
+           OR EXISTS (SELECT 1 FROM transactions WHERE business_id = $1
+                        AND source_type NOT IN ('manual', 'sale')) AS foreign_records`,
+      [businessId],
+    );
+    if (rows[0].foreign_records) {
+      throw new Error('Bisnis ini punya utang, faktur, atau pembelian harta: jurnal tidak dihapus.');
+    }
+    const deleted = {};
+    const run = async (label, sql) => {
+      deleted[label] = (await client.query(sql, [businessId])).rowCount;
+    };
+    await run(
+      'tag transaksi',
+      `DELETE FROM transaction_tags WHERE transaction_id IN
+         (SELECT id FROM transactions WHERE business_id = $1)`,
+    );
+    await run(
+      'mutasi stok',
+      `DELETE FROM stock_movements WHERE business_id = $1 AND movement_type IN ('sale', 'void')`,
+    );
+    await run('item penjualan', 'DELETE FROM sale_items WHERE business_id = $1');
+    await run('penjualan', 'DELETE FROM sales WHERE business_id = $1');
+    await run('transaksi', 'DELETE FROM transactions WHERE business_id = $1');
+    // The new month sets its own opening position; the old date would block an earlier one.
+    await client.query(
+      'UPDATE businesses SET opening_date = NULL, opening_capital = NULL WHERE id = $1',
+      [businessId],
+    );
+    await client.query('COMMIT');
+    return deleted;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 let closeSession = async () => {};
@@ -200,8 +272,11 @@ const parentOf = (name) =>
   /penyusutan/i.test(name) ? 'Beban Penyusutan' : 'Beban Administrasi Dan Umum';
 
 async function createExpenseCategories(api, accounts) {
-  const ids = new Map();
+  // On a journal replace the categories already exist: reuse them by name.
+  const existing = await api('GET', '/categories');
+  const ids = new Map(existing.items.map((row) => [row.name, row.id]));
   for (const account of accounts.filter((row) => /^Beban /i.test(row.name))) {
+    if (ids.has(account.name)) continue;
     const parentName = parentOf(account.name);
     if (!ids.has(parentName)) {
       const parent = await api('POST', '/categories', {
@@ -265,8 +340,9 @@ async function importWorkbook(file, api) {
   await workbook.xlsx.readFile(file);
   const acquiredOn = acquisitionDate(workbook);
   const { equipment, yearlyRent } = assetList(workbook);
-  const { businessName, accounts } = chartOfAccounts(workbook);
-  const entries = journal(workbook, 'Oktober');
+  const month = process.env.ZAHIR_MONTH || 'Oktober';
+  const { businessName, accounts } = chartOfAccounts(workbook, month);
+  const entries = journal(workbook, month);
   const openingDate = `${entries[0].date.slice(0, 8)}01`;
   const account = (pattern) => {
     const found = accounts.find((row) => pattern.test(row.name));
@@ -284,12 +360,26 @@ async function importWorkbook(file, api) {
   const owner = process.env.ZAHIR_INTO_EMAIL
     ? await existingOwner(process.env.ZAHIR_INTO_EMAIL, api)
     : await ownerCredentials();
-  const alreadyImported = owner.existing
-    ? owner.hasData
-    : await api('POST', '/auth/login', owner).then(
-        () => true,
-        () => false,
-      );
+  const replace = process.env.ZAHIR_REPLACE_JOURNAL === '1';
+  if (replace && !owner.existing) {
+    throw new Error('ZAHIR_REPLACE_JOURNAL hanya bisa dipakai bersama ZAHIR_INTO_EMAIL.');
+  }
+  if (replace) {
+    const deleted = await clearJournal(owner.businessId);
+    console.log(
+      `Jurnal lama dihapus: ${Object.entries(deleted)
+        .map(([label, count]) => `${count} ${label}`)
+        .join(', ')}.`,
+    );
+  }
+  const alreadyImported = replace
+    ? false
+    : owner.existing
+      ? owner.hasData
+      : await api('POST', '/auth/login', owner).then(
+          () => true,
+          () => false,
+        );
   if (alreadyImported) {
     console.log(`${owner.email} sudah berisi data: tidak mengimpor ulang, hanya memeriksa hasil.`);
     const dropped = await dropDefaultExpenseCategories(api);
@@ -324,24 +414,27 @@ async function importWorkbook(file, api) {
   const categoryId = await createExpenseCategories(api, accounts);
   await dropDefaultExpenseCategories(api);
 
-  // Asset register: what the business owned before the opening date.
-  await api('POST', '/assets', {
-    kind: 'prepaid',
-    group_name: account(/dibayar dimuka/i).name,
-    name: 'Sewa tempat 1 tahun',
-    acquired_on: acquiredOn,
-    cost: yearlyRent,
-    useful_life_months: 12,
-    expense_category_id: categoryId('Beban Sewa'),
-  });
-  for (const item of equipment) {
+  // Asset register: what the business owned before the opening date (kept on a replace).
+  const registered = await api('GET', '/assets');
+  if (registered.items.length === 0) {
     await api('POST', '/assets', {
-      kind: 'fixed',
-      group_name: account(/^Peralatan$/i).name,
-      ...item,
+      kind: 'prepaid',
+      group_name: account(/dibayar dimuka/i).name,
+      name: 'Sewa tempat 1 tahun',
       acquired_on: acquiredOn,
-      expense_category_id: categoryId('Beban Penyusutan Peralatan'),
+      cost: yearlyRent,
+      useful_life_months: 12,
+      expense_category_id: categoryId('Beban Sewa'),
     });
+    for (const item of equipment) {
+      await api('POST', '/assets', {
+        kind: 'fixed',
+        group_name: account(/^Peralatan$/i).name,
+        ...item,
+        acquired_on: acquiredOn,
+        expense_category_id: categoryId('Beban Penyusutan Peralatan'),
+      });
+    }
   }
 
   // The month's journal: cash receipts become sales, cash payments become expenses,
@@ -349,14 +442,17 @@ async function importWorkbook(file, api) {
   const receipts = entries.filter((entry) =>
     entry.lines.some((line) => isCash(line) && line.debit),
   );
-  const product = await api('POST', '/products', {
-    name: 'Jasa Pangkas Rambut',
-    unit: 'orang',
-    sell_price: mostCommon(receipts.map((entry) => entry.lines.find(isCash).debit)),
-    cost_price: 0,
-    track_stock: false,
-    opening_stock: 0,
-  });
+  const productName = 'Jasa Pangkas Rambut';
+  const product =
+    (await api('GET', '/products')).items.find((row) => row.name === productName) ??
+    (await api('POST', '/products', {
+      name: productName,
+      unit: 'orang',
+      sell_price: mostCommon(receipts.map((entry) => entry.lines.find(isCash).debit)),
+      cost_price: 0,
+      track_stock: false,
+      opening_stock: 0,
+    }));
   let saleCount = 0;
   let expenseCount = 0;
   for (const entry of entries) {
