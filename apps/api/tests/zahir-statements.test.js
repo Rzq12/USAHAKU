@@ -4,6 +4,7 @@ import { startApi, stopApi, newBusiness, addProduct, paidSale } from './support.
 import {
   accumulatedAmortization,
   amortizationBetween,
+  monthlyShare,
   monthsRecognized,
 } from '../src/lib/amortization.js';
 
@@ -243,22 +244,53 @@ test('opening rules: assets precede the opening date, which precedes all transac
   assert.equal(response.status, 400, 'capital needs a date');
 });
 
-test('straight line, recognized at month end, running total rounded half up', () => {
+test('November keeps the fixed Rp54.167 share, and the balance sheet still closes', async () => {
+  const pl = await report('/reports/profit-loss?from=2026-11-01&to=2026-11-30');
+  assert.equal(amountOf(pl, 'Beban Penyusutan Peralatan'), 54_167);
+  assert.equal(amountOf(pl, 'Beban Sewa'), 1_500_000);
+  const balance = await report('/reports/balance-sheet?from=2026-11-01&to=2026-11-30');
+  assert.equal(amountOf(balance, 'Akumulasi Penyusutan Peralatan'), -270_834);
+  assert.equal(amountOf(balance, 'Sewa Dibayar di Muka'), 10_500_000);
+  assert.equal(balance.totals.adjustment, 0);
+});
+
+const month = (index) => ({
+  from: new Date(Date.UTC(2026, 6 + index, 1)).toISOString().slice(0, 10),
+  to: new Date(Date.UTC(2026, 7 + index, 0)).toISOString().slice(0, 10),
+});
+
+test('Daftar-daftar rule: exact opening accumulation, then a fixed monthly share', () => {
   const chairs = { acquired_on: '2026-07-01', cost: 400_000, useful_life_months: 60 };
+  const opening = '2026-10-01';
   assert.equal(monthsRecognized(chairs, '2026-06-30'), 0);
   assert.equal(monthsRecognized(chairs, '2026-07-30'), 0, 'July is recognized on 31 July');
   assert.equal(monthsRecognized(chairs, '2026-07-31'), 1);
   assert.equal(monthsRecognized(chairs, '2026-10-15'), 3);
   assert.equal(monthsRecognized(chairs, '2031-12-31'), 60, 'capped at the useful life');
-  assert.equal(accumulatedAmortization(chairs, '2026-10-31'), 26_667);
-  assert.equal(accumulatedAmortization(chairs, '2031-12-31'), 400_000);
-  assert.equal(amortizationBetween(chairs, '2026-10-01', '2026-10-31'), 6_667);
-  assert.equal(amortizationBetween(chairs, '2026-07-01', '2026-10-31', '2026-10-01'), 6_667);
-  let total = 0;
-  for (let month = 0; month < 60; month += 1) {
-    const from = new Date(Date.UTC(2026, 6 + month, 1)).toISOString().slice(0, 10);
-    const to = new Date(Date.UTC(2026, 7 + month, 0)).toISOString().slice(0, 10);
-    total += amortizationBetween(chairs, from, to);
-  }
-  assert.equal(total, 400_000, 'monthly shares add up to cost exactly');
+  // Akumulasi 2 bulan 13.333, 3 bulan 20.000, Amortisasi /bulan 6.667.
+  assert.equal(accumulatedAmortization(chairs, '2026-08-31', opening), 13_333);
+  assert.equal(accumulatedAmortization(chairs, '2026-09-30', opening), 20_000);
+  assert.equal(monthlyShare(chairs), 6_667);
+  assert.equal(accumulatedAmortization(chairs, '2026-10-31', opening), 26_667);
+  assert.equal(accumulatedAmortization(chairs, '2026-11-30', opening), 33_334);
+  assert.equal(amortizationBetween(chairs, '2026-07-01', '2026-10-31', opening), 6_667);
+  const shares = Array.from({ length: 60 }, (_, index) =>
+    amortizationBetween(chairs, month(index).from, month(index).to, opening),
+  );
+  assert.deepEqual(shares.slice(0, 3), [0, 0, 0], 'before opening: inside the opening balance');
+  assert.ok(shares.slice(3, 59).every((share) => share === 6_667));
+  assert.equal(shares[59], 400_000 - 20_000 - 6_667 * 56, 'last month takes the rounding');
+  assert.equal(20_000 + shares.reduce((sum, share) => sum + share, 0), 400_000);
+});
+
+test('without an opening date the fixed share runs from acquisition and ends at cost', () => {
+  const scissors = { acquired_on: '2026-07-01', cost: 230_000, useful_life_months: 24 };
+  const shares = Array.from({ length: 24 }, (_, index) =>
+    amortizationBetween(scissors, month(index).from, month(index).to),
+  );
+  assert.ok(shares.slice(0, 23).every((share) => share === 9_583));
+  assert.equal(
+    shares.reduce((sum, share) => sum + share, 0),
+    230_000,
+  );
 });

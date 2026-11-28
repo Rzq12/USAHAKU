@@ -502,12 +502,15 @@ function registerTotals(assets, asOf, openingDate) {
   const prepaid = assets.filter((asset) => asset.kind === 'prepaid');
   const fixed = assets.filter((asset) => asset.kind === 'fixed');
   const sum = (rows) => rows.reduce((total, row) => total + row.amount, 0);
-  const prepaidGroups = sumByGroup(prepaid, (asset) => bookValue(asset, asOf));
+  const prepaidGroups = sumByGroup(prepaid, (asset) => bookValue(asset, asOf, openingDate));
   const fixedGroups = sumByGroup(fixed, (asset) => asset.cost);
-  const depreciationGroups = sumByGroup(fixed, (asset) => -accumulatedAmortization(asset, asOf));
+  const depreciationGroups = sumByGroup(
+    fixed,
+    (asset) => -accumulatedAmortization(asset, asOf, openingDate),
+  );
   const openingValue = assets.reduce(
     (total, asset) =>
-      total + (openingDate ? bookValue(asset, addDays(openingDate, -1)) : asset.cost),
+      total + (openingDate ? bookValue(asset, addDays(openingDate, -1), openingDate) : asset.cost),
     0,
   );
   return {

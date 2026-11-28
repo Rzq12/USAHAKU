@@ -4,7 +4,12 @@ import { getBusiness, updateOpening } from '../db/business.js';
 import { getCategory } from '../db/categories.js';
 import { changedFields, writeAudit } from '../db/audit.js';
 import { fieldError, notFound } from '../lib/errors.js';
-import { accumulatedAmortization, amortizationBetween, bookValue } from '../lib/amortization.js';
+import {
+  accumulatedAmortization,
+  amortizationBetween,
+  bookValue,
+  monthlyShare,
+} from '../lib/amortization.js';
 import { addDays, todayJakarta } from '../lib/dates.js';
 
 /*
@@ -19,19 +24,26 @@ function monthOf(date) {
   return { from, to: addDays(nextMonth, -1) };
 }
 
-function withSchedule(asset, asOf) {
+function withSchedule(asset, asOf, openingDate) {
   const month = monthOf(asOf);
   return {
     ...asset,
-    accumulated: accumulatedAmortization(asset, asOf),
-    book_value: bookValue(asset, asOf),
-    month_amortization: amortizationBetween(asset, month.from, month.to),
+    monthly_share: monthlyShare(asset),
+    accumulated: accumulatedAmortization(asset, asOf, openingDate),
+    book_value: bookValue(asset, asOf, openingDate),
+    month_amortization: amortizationBetween(asset, month.from, month.to, openingDate),
   };
 }
 
 export async function listAssets(actor, asOf = todayJakarta()) {
-  const rows = await assets.listAssets(pool, actor.business_id);
-  return { as_of: asOf, items: rows.map((asset) => withSchedule(asset, asOf)) };
+  const [rows, business] = await Promise.all([
+    assets.listAssets(pool, actor.business_id),
+    getBusiness(pool, actor.business_id),
+  ]);
+  return {
+    as_of: asOf,
+    items: rows.map((asset) => withSchedule(asset, asOf, business.opening_date)),
+  };
 }
 
 async function requireAmortizationCategory(client, businessId, categoryId) {
@@ -69,7 +81,8 @@ export async function createAsset(actor, body) {
       entityId: id,
       detail: body,
     });
-    return withSchedule(await assets.getAsset(client, actor.business_id, id), todayJakarta());
+    const asset = await assets.getAsset(client, actor.business_id, id);
+    return withSchedule(asset, todayJakarta(), business.opening_date);
   });
 }
 
