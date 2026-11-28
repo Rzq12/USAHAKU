@@ -4,6 +4,7 @@ import { api } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
 import { useSubmit } from '../lib/hooks.js';
 import { FormError, TextField } from '../components/ui.jsx';
+import { Wordmark } from '../components/Brand.jsx';
 
 export function ChangePassword() {
   const { refresh } = useAuth();
@@ -17,7 +18,9 @@ export function ChangePassword() {
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-4 py-10">
-      <p className="text-h5 tracking-[-0.02em]">usahaku</p>
+      <p className="text-h5 tracking-[-0.02em]">
+        <Wordmark />
+      </p>
       <h1 className="mt-6 text-h3">Ganti kata sandi</h1>
       <p className="mt-1 text-body-sm text-slate">Sesi Anda di perangkat lain akan berakhir.</p>
       <form
