@@ -496,7 +496,8 @@ function sumByGroup(assets, value) {
 
 /*
  * Register figures on one date. Opening value is what the register adds to the opening
- * position: book value the day before the opening date, or cost when there is none.
+ * position: book value the day before the opening date, or cost when there is none. A
+ * purchased asset is not part of it: the cash that paid for it already left an account.
  */
 function registerTotals(assets, asOf, openingDate) {
   const prepaid = assets.filter((asset) => asset.kind === 'prepaid');
@@ -508,11 +509,14 @@ function registerTotals(assets, asOf, openingDate) {
     fixed,
     (asset) => -accumulatedAmortization(asset, asOf, openingDate),
   );
-  const openingValue = assets.reduce(
-    (total, asset) =>
-      total + (openingDate ? bookValue(asset, addDays(openingDate, -1), openingDate) : asset.cost),
-    0,
-  );
+  const openingValue = assets
+    .filter((asset) => !asset.purchase_transaction_id)
+    .reduce(
+      (total, asset) =>
+        total +
+        (openingDate ? bookValue(asset, addDays(openingDate, -1), openingDate) : asset.cost),
+      0,
+    );
   return {
     prepaidGroups,
     fixedGroups,
@@ -531,7 +535,7 @@ function balanceSheetNotes(totals, year, hasFinancing, context) {
   ];
   if (context.purchasedFixedAssets !== 0) {
     notes.push(
-      'Harta tetap dari kategori pembelian peralatan dicatat sebesar harga beli, tanpa penyusutan.',
+      'Harta tetap dari kategori pembelian peralatan dicatat sebesar harga beli, tanpa penyusutan. Supaya disusutkan, catat pembeliannya di halaman Saldo Awal dan Harta.',
     );
   }
   if (context.hasRegister) {

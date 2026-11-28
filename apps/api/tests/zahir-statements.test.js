@@ -237,8 +237,8 @@ test('opening rules: assets precede the opening date, which precedes all transac
     useful_life_months: 12,
     expense_category_id: business.category('Lainnya').id,
   });
-  assert.equal(response.status, 400);
-  assert.ok(response.body.error.fields.acquired_on);
+  assert.equal(response.status, 400, 'bought after the opening date, so it needs a payment');
+  assert.ok(response.body.error.fields.paid_from_account_id);
 
   response = await owner.put('/business/opening', { opening_capital: 1_000_000 });
   assert.equal(response.status, 400, 'capital needs a date');
@@ -333,7 +333,7 @@ test('editing an asset recomputes its depreciation everywhere and keeps the open
 
   response = await edit({ acquired_on: '2026-10-05' });
   assert.equal(response.status, 400);
-  assert.ok(response.body.error.fields.acquired_on);
+  assert.ok(response.body.error.fields.paid_from_account_id);
 
   const other = await newBusiness();
   response = await other.owner.put(`/assets/${created.body.id}`, {

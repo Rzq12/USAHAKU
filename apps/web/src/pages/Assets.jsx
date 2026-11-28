@@ -17,6 +17,7 @@ import {
   RowList,
   SelectField,
   TextField,
+  useAccounts,
   useCategories,
 } from '../components/ui.jsx';
 
@@ -155,6 +156,9 @@ const EMPTY_ASSET = {
   life: '',
   lifeUnit: 'years',
   expense_category_id: '',
+  paid: false,
+  paid_from_account_id: '',
+  purchase_category_id: '',
 };
 
 /** The form's shape for an existing asset; whole years show in years, as the workbook does. */
@@ -169,7 +173,94 @@ function toForm(asset) {
     life: String(inYears ? asset.useful_life_months / 12 : asset.useful_life_months),
     lifeUnit: inYears ? 'years' : 'months',
     expense_category_id: asset.expense_category_id,
+    paid: Boolean(asset.purchase_transaction_id),
+    paid_from_account_id: asset.paid_from_account_id ?? '',
+    purchase_category_id: asset.purchase_category_id ?? '',
   };
+}
+
+/*
+ * Same rule as the server: with an opening date, an asset acquired before it belongs to the
+ * opening position and one acquired from it on is a purchase paid from an account. Without
+ * an opening date the owner says which it is.
+ */
+const isPurchase = (form, openingDate) =>
+  openingDate ? Boolean(form.acquired_on) && form.acquired_on >= openingDate : form.paid;
+
+/** Payment of a purchase: the account that paid and the category it shows under in cash flow. */
+function PurchaseFields({ form, setForm, asset, fieldErrors }) {
+  const accounts = useAccounts();
+  const categories = useCategories();
+  const accountItems = useMemo(
+    () =>
+      (accounts.data?.items ?? []).filter(
+        (account) => account.id === asset?.paid_from_account_id || !account.is_archived,
+      ),
+    [accounts.data, asset],
+  );
+  const purchaseCategories = useMemo(
+    () =>
+      categories.data && {
+        items: categories.data.items.filter(
+          (category) =>
+            category.id === asset?.purchase_category_id ||
+            (category.type === 'expense' &&
+              !category.is_archived &&
+              category.pl_group !== 'inventory'),
+        ),
+      },
+    [categories.data, asset],
+  );
+  // Start from the first account and the equipment purchase category, as most purchases are.
+  useEffect(() => {
+    const updates = {};
+    if (!form.paid_from_account_id && accountItems[0]) {
+      updates.paid_from_account_id = accountItems[0].id;
+    }
+    if (!form.purchase_category_id && purchaseCategories) {
+      const investing = purchaseCategories.items.filter(
+        (category) => category.cash_activity === 'investing',
+      );
+      const preferred =
+        investing.find((category) => /peralatan/i.test(category.name)) ?? investing[0];
+      if (preferred) updates.purchase_category_id = preferred.id;
+    }
+    if (Object.keys(updates).length > 0) setForm((current) => ({ ...current, ...updates }));
+  }, [
+    accountItems,
+    purchaseCategories,
+    form.paid_from_account_id,
+    form.purchase_category_id,
+    setForm,
+  ]);
+
+  return (
+    <>
+      <SelectField
+        label="Dibayar dari akun"
+        hint="Harga perolehan dicatat sebagai pengeluaran dari akun ini pada tanggal perolehan."
+        value={form.paid_from_account_id}
+        onChange={(e) => setForm({ ...form, paid_from_account_id: e.target.value })}
+        error={fieldErrors.paid_from_account_id}
+      >
+        <option value="">Pilih akun</option>
+        {accountItems.map((account) => (
+          <option key={account.id} value={account.id}>
+            {account.name}
+          </option>
+        ))}
+      </SelectField>
+      <SelectField
+        label="Kategori pembelian"
+        hint="Muncul di arus kas. Laba rugi hanya mencatat penyusutannya, bukan harga belinya."
+        value={form.purchase_category_id}
+        onChange={(e) => setForm({ ...form, purchase_category_id: e.target.value })}
+        error={fieldErrors.purchase_category_id}
+      >
+        <CategoryOptions categories={purchaseCategories} type="expense" />
+      </SelectField>
+    </>
+  );
 }
 
 /** Adds an asset, or edits `asset` when one is given. */
@@ -196,7 +287,9 @@ function AssetFormDrawer({ open, onClose, asset, groups, openingDate }) {
       },
     [categories.data, asset],
   );
+  const purchase = isPurchase(form, openingDate);
   const action = useCallback(() => {
+    const paid = isPurchase(form, openingDate);
     const payload = {
       kind: form.kind,
       group_name: form.group_name,
@@ -205,9 +298,11 @@ function AssetFormDrawer({ open, onClose, asset, groups, openingDate }) {
       cost: form.cost,
       useful_life_months: months > 0 ? months : null,
       expense_category_id: form.expense_category_id || null,
+      paid_from_account_id: paid ? form.paid_from_account_id || null : null,
+      purchase_category_id: paid ? form.purchase_category_id || null : null,
     };
     return asset ? api.put(`/assets/${asset.id}`, payload) : api.post('/assets', payload);
-  }, [form, months, asset]);
+  }, [form, months, asset, openingDate]);
   const { submit, pending, fieldErrors, formError } = useSubmit(action, {
     success: asset ? 'Harta disimpan.' : 'Harta ditambahkan.',
     onDone: () => {
@@ -276,7 +371,7 @@ function AssetFormDrawer({ open, onClose, asset, groups, openingDate }) {
           type="date"
           hint={
             openingDate
-              ? `Harus sebelum tanggal saldo awal (${formatDate(openingDate)}).`
+              ? `Sebelum ${formatDate(openingDate)} termasuk saldo awal. Sejak tanggal itu dicatat sebagai pembelian. Penyusutan dihitung mulai bulan perolehan.`
               : 'Penyusutan dihitung mulai bulan ini.'
           }
           value={form.acquired_on}
@@ -289,6 +384,24 @@ function AssetFormDrawer({ open, onClose, asset, groups, openingDate }) {
           onChange={(cost) => setForm({ ...form, cost })}
           error={fieldErrors.cost}
         />
+        {!openingDate && (
+          <label className="flex items-start gap-3 text-body-sm">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={form.paid}
+              onChange={(e) => setForm({ ...form, paid: e.target.checked })}
+            />
+            <span>Dibeli dengan uang usaha (dicatat sebagai pengeluaran)</span>
+          </label>
+        )}
+        {purchase ? (
+          <PurchaseFields form={form} setForm={setForm} asset={asset} fieldErrors={fieldErrors} />
+        ) : (
+          fieldErrors.paid_from_account_id && (
+            <p className="text-caption text-danger-deep">{fieldErrors.paid_from_account_id}</p>
+          )
+        )}
         <div className="grid grid-cols-[1fr_auto] items-end gap-2">
           <TextField
             label="Umur ekonomis"
@@ -344,6 +457,12 @@ function AssetDrawer({ asset, onClose, onEdit, onDelete }) {
           rupiah(asset.monthly_share),
         ],
         ['Kategori beban', asset.expense_category_name],
+        ...(asset.purchase_transaction_id
+          ? [
+              ['Dibayar dari', asset.paid_from_account_name],
+              ['Kategori pembelian', asset.purchase_category_name],
+            ]
+          : [['Asal', 'Saldo awal']]),
         ['Akumulasi', rupiah(asset.accumulated)],
         ['Nilai buku', rupiah(asset.book_value)],
       ]
@@ -516,7 +635,11 @@ export default function Assets() {
         open={Boolean(confirming)}
         onClose={() => setConfirming(null)}
         title="Hapus harta ini?"
-        body={`${confirming?.name ?? ''} hilang dari neraca, dan penyusutannya hilang dari laba rugi semua periode.`}
+        body={`${confirming?.name ?? ''} hilang dari neraca, dan penyusutannya hilang dari laba rugi semua periode.${
+          confirming?.purchase_transaction_id
+            ? ` Pengeluaran pembeliannya juga dihapus, jadi saldo ${confirming.paid_from_account_name} kembali.`
+            : ''
+        }`}
         confirmLabel="Hapus harta"
         onConfirm={async () => {
           await api.del(`/assets/${confirming.id}`);
