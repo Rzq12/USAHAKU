@@ -49,7 +49,7 @@ function sheetTexts(sheet) {
   return texts;
 }
 
-test('the Excel package holds the three statements, and they agree with each other', async () => {
+test('the Excel package holds the four statements, and they agree with each other', async () => {
   const business = await businessWithActivity();
   const file = await exportPackage(business, `from=${YEAR_START}&to=${TODAY}&format=xlsx`);
   assert.equal(file.status, 200);
@@ -63,13 +63,16 @@ test('the Excel package holds the three statements, and they agree with each oth
   await workbook.xlsx.load(file.body);
   assert.deepEqual(
     workbook.worksheets.map((sheet) => sheet.name),
-    ['Neraca', 'Laba Rugi', 'Arus Kas'],
+    ['Neraca', 'Laba Rugi', 'Perubahan Ekuitas', 'Arus Kas'],
   );
-  const [balance, profit, cash] = workbook.worksheets;
+  const [balance, profit, equity, cash] = workbook.worksheets;
   assert.equal(balance.getCell('A1').value, 'Toko Uji');
   assert.equal(balance.getCell('A2').value, 'Neraca');
   assert.equal(profit.getCell('A2').value, 'Laporan Laba Rugi');
+  assert.equal(equity.getCell('A2').value, 'Laporan Perubahan Ekuitas');
   assert.equal(cash.getCell('A2').value, 'Laporan Arus Kas');
+  // Closing capital on the equity statement is total equity on the balance sheet.
+  assert.equal(sheetAmount(equity, 'Modal Akhir'), sheetAmount(balance, 'Total Modal'));
 
   // Cash on the balance sheet equals the cash flow closing; this year profit equals net profit.
   assert.equal(sheetAmount(balance, 'Total Kas dan Bank'), 1_015_000);

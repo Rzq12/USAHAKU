@@ -693,9 +693,78 @@ async function balanceSheet(businessId, { to }) {
   };
 }
 
+/** "Modal Bapak Candra" → "Modal Awal Bapak Candra", like the Zahir statement. */
+const openingCapitalLabel = (name) =>
+  /^Modal\s+/i.test(name) ? name.replace(/^Modal\s+/i, 'Modal Awal ') : `${name} Awal`;
+
+/*
+ * Statement of changes in equity for a range, laid out like the Zahir workbook: owner capital
+ * at the start, then retained earnings at the start, profit and drawings of the range as the
+ * additions. Both ends come from the balance sheet, so the closing figure is its total equity.
+ */
+async function equityChanges(businessId, { from, to }) {
+  const [start, end, period, business] = await Promise.all([
+    balanceSheet(businessId, { to: addDays(from, -1) }),
+    balanceSheet(businessId, { to }),
+    profitLossFigures(businessId, from, to),
+    getBusiness(pool, businessId),
+  ]);
+  const before = start.totals;
+  const after = end.totals;
+  const openingCapital = before.opening_equity + before.paid_in_capital;
+  const openingRetained = before.total_equity - openingCapital;
+  const paidIn = after.paid_in_capital - before.paid_in_capital;
+  const drawings = after.drawings - before.drawings;
+  const additions = after.total_equity - openingCapital;
+  // Whatever single-entry books cannot place (see Penyesuaian Saldo on the balance sheet).
+  const adjustment = additions - openingRetained - period.net_profit - paidIn - drawings;
+  const capitalName =
+    business.opening_capital !== null ? business.capital_name || 'Modal Pemilik' : 'Modal';
+  const ownerName = capitalName.replace(/^Modal\s+/i, '');
+  const line = (label, amount) => ({ label, amount, indent: true });
+  const total = (label, amount, double = false) => ({ label, amount, emphasis: true, double });
+  const totals = {
+    opening_capital: openingCapital,
+    opening_retained_earnings: openingRetained,
+    net_profit: period.net_profit,
+    paid_in_capital: paidIn,
+    drawings,
+    adjustment,
+    total_additions: additions,
+    closing_equity: after.total_equity,
+  };
+  return {
+    title: 'Laporan Perubahan Ekuitas',
+    subtitle: periodLabel(from, to),
+    basis: ACCRUAL_BASIS,
+    columns: LABEL_AMOUNT_COLUMNS,
+    rows: [
+      { label: openingCapitalLabel(capitalName), amount: openingCapital, emphasis: true },
+      line('Saldo Laba Awal', openingRetained),
+      line('Laba Bersih Periode Ini', period.net_profit),
+      ...(paidIn !== 0 ? [line('Modal Disetor', paidIn)] : []),
+      line('Prive', drawings),
+      ...(adjustment !== 0 ? [line('Penyesuaian Saldo', adjustment)] : []),
+      total('Penambahan Modal', additions),
+      total(
+        capitalName === 'Modal' ? 'Modal Akhir' : `Modal Akhir ${ownerName}`,
+        after.total_equity,
+        true,
+      ),
+    ],
+    notes: [
+      `Saldo Laba Awal adalah laba yang terkumpul sampai ${formatDateLong(addDays(from, -1))}, termasuk laba sebelum saldo awal.`,
+      'Modal Akhir sama dengan Total Modal di neraca pada tanggal akhir periode.',
+    ],
+    totals,
+    is_empty: Object.values(totals).every((value) => value === 0),
+  };
+}
+
 export const REPORTS = {
   'balance-sheet': balanceSheet,
   'profit-loss': profitLoss,
+  'equity-changes': equityChanges,
   'cash-flow': cashFlow,
   'sales-by-product': salesByProduct,
   'expense-by-category': expenseByCategory,
@@ -813,6 +882,7 @@ const exportMeta = (actor) => ({
 const STATEMENTS = [
   { name: 'balance-sheet', sheet: 'Neraca' },
   { name: 'profit-loss', sheet: 'Laba Rugi' },
+  { name: 'equity-changes', sheet: 'Perubahan Ekuitas' },
   { name: 'cash-flow', sheet: 'Arus Kas' },
 ];
 
